@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-label="claude-context-size-guard">
+  <title>claude-context-size-guard</title>
+
+  <rect x="0" y="0" width="1280" height="640" fill="#1A2029"/>
+  <rect x="0" y="0" width="1280" height="8" fill="#D97757"/>
+
+  <!-- mark -->
+  <g transform="translate(96,196) scale(2.0)">
+    <path d="M64 12 L110 27 V64 c0 28-20 44-46 52 C38 108 18 92 18 64 V27 Z"
+          fill="#22262E" stroke="#D97757" stroke-width="4" stroke-linejoin="round"/>
+    <g fill="none" stroke-width="9" stroke-linecap="round">
+      <path d="M31 78 A33 33 0 0 1 47.5 49.42" stroke="#3DD68C"/>
+      <path d="M52.5 45.1 A33 33 0 0 1 75.5 45.1" stroke="#F2C14E"/>
+      <path d="M80.5 49.42 A33 33 0 0 1 97 78" stroke="#E5484D"/>
+    </g>
+    <line x1="64" y1="78" x2="86.3" y2="63.5" stroke="#F5F7FA" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="64" cy="78" r="7" fill="#1A2029" stroke="#F5F7FA" stroke-width="4"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="400" y="252"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+        font-size="62" fill="#F5F7FA">claude-context-</text>
+  <text x="400" y="326"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+        font-size="62" fill="#F5F7FA">size-guard</text>
+
+  <text x="402" y="382"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+        font-size="24" fill="#8A93A3">Stops you from sending a prompt into a bloated context.</text>
+
+  <!-- guard message -->
+  <rect x="400" y="416" width="800" height="96" rx="12" fill="#12161D" stroke="#2C3441" stroke-width="2"/>
+  <text x="428" y="456"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+        font-size="22" fill="#E5484D">Context guard: ~104,198 tokens, over the 75,000 limit.</text>
+  <text x="428" y="490"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+        font-size="22" fill="#8A93A3">Run /compact, then resend.</text>
+
+  <text x="400" y="560"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+        font-size="21" fill="#5C6675">UserPromptSubmit hook for Claude Code  ·  Node 18+  ·  no deps</text>
+</svg>
