@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-context-size-guard",
+  "description": "Context-size guard for Claude Code. Measures live context on every prompt and tells you to run /compact before an over-full turn is billed.",
+  "owner": {
+    "name": "hacknitive",
+    "url": "https://github.com/hacknitive"
+  },
+  "plugins": [
+    {
+      "name": "claude-context-size-guard",
+      "description": "Stops you from sending a prompt into an already-bloated context. UserPromptSubmit hook: past a configurable token threshold (default 75,000), Claude answers with a one-line notice to run /compact instead of burning a full turn.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

@@ -37,7 +37,8 @@ A long session degrades quietly. Nothing warns you; the model just gets slower, 
 ### Claude Code plugin (recommended)
 
 ```bash
-claude plugin install github:hacknitive/claude-context-size-guard
+/plugin marketplace add hacknitive/claude-context-size-guard
+/plugin install claude-context-size-guard@claude-context-size-guard
 ```
 
 Restart Claude Code. Active on the next session.
@@ -148,7 +149,9 @@ claude-context-size-guard/
 │   ├── install.js               # standalone installer (merges settings.json)
 │   └── lib/settings.js          # JSONC-tolerant reader/writer
 ├── test/selftest.js             # 13-case verification
-├── .claude-plugin/plugin.json   # Claude Code plugin manifest
+├── .claude-plugin/
+│   ├── plugin.json              # Claude Code plugin manifest
+│   └── marketplace.json         # single-plugin marketplace, for /plugin marketplace add
 ├── install.sh / install.ps1     # thin shims to bin/install.js
 ├── package.json / LICENSE / README.md / CLAUDE.md
 ```
