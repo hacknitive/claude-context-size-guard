@@ -144,7 +144,7 @@ claude-context-size-guard/
 ├── bin/
 │   ├── install.js               # standalone installer (merges settings.json)
 │   └── lib/settings.js          # JSONC-tolerant reader/writer
-├── test/selftest.js             # 12-case verification
+├── test/selftest.js             # 13-case verification
 ├── .claude-plugin/plugin.json   # Claude Code plugin manifest
 ├── install.sh / install.ps1     # thin shims to bin/install.js
 ├── package.json / LICENSE / README.md / CLAUDE.md
