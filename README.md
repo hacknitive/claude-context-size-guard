@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo-wide.svg" alt="claude-context-size-guard" width="560">
+</p>
+
 # claude-context-size-guard
 
 Stops you from sending a prompt into an already-bloated context.

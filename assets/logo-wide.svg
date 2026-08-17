@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="640" height="160" role="img" aria-label="claude-context-size-guard">
+  <title>claude-context-size-guard</title>
+
+  <rect x="0" y="0" width="640" height="160" rx="20" fill="#1A2029"/>
+
+  <!-- mark (same geometry as logo.svg, translated + scaled) -->
+  <g transform="translate(28,16) scale(1.0)">
+    <path d="M64 12 L110 27 V64 c0 28-20 44-46 52 C38 108 18 92 18 64 V27 Z"
+          fill="#2A2A2E" stroke="#D97757" stroke-width="4" stroke-linejoin="round"/>
+    <g fill="none" stroke-width="9" stroke-linecap="round">
+      <path d="M31 78 A33 33 0 0 1 47.5 49.42" stroke="#3DD68C"/>
+      <path d="M52.5 45.1 A33 33 0 0 1 75.5 45.1" stroke="#F2C14E"/>
+      <path d="M80.5 49.42 A33 33 0 0 1 97 78" stroke="#E5484D"/>
+    </g>
+    <line x1="64" y1="78" x2="86.3" y2="63.5" stroke="#F5F7FA" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="64" cy="78" r="7" fill="#1A2029" stroke="#F5F7FA" stroke-width="4"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="164" y="76"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+        font-size="34" fill="#F5F7FA">context-size-guard</text>
+  <text x="165" y="106"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace"
+        font-size="17" fill="#8A93A3">~104,198 tokens, over the 75,000 limit</text>
+</svg>
