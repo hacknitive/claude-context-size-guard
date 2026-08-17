@@ -21,25 +21,40 @@ function hookPath() {
 }
 
 const HOOK = hookPath();
-// Read the default straight off the config module that sits beside the hook
+// Read the defaults straight off the config module that sits beside the hook
 // under test, so a changed default cannot silently desync from these cases.
-const LIMIT = require(path.join(path.dirname(HOOK), 'guard-config.js')).DEFAULTS.limit;
+const DEFAULTS = require(path.join(path.dirname(HOOK), 'guard-config.js')).DEFAULTS;
+const LIMIT = DEFAULTS.limit;
+const MIN_RECORDS = DEFAULTS.minRecords;
 const results = [];
 
+// Every case below asserts against DEFAULTS, so the hook must not see any
+// config layer above them: not the developer's CONTEXT_GUARD_* vars, and not
+// their user config file either. Pointing XDG_CONFIG_HOME (POSIX) and APPDATA
+// (Windows) at an empty temp dir is what makes the run reproducible on a
+// machine that has a real ~/.config/claude-context-size-guard/config.json.
+// The repo-local layer is neutralised by passing that same dir as `cwd`.
+const CONFIG_SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'context-size-guard-cfg-'));
+const NEUTRAL_ENV = Object.assign({}, process.env, {
+  CONTEXT_GUARD_LIMIT: '',
+  CONTEXT_GUARD_MODE: '',
+  CONTEXT_GUARD_BYPASS: '',
+  CONTEXT_GUARD_MIN_RECORDS: '',
+  XDG_CONFIG_HOME: CONFIG_SANDBOX,
+  APPDATA: CONFIG_SANDBOX,
+});
+
 function run(prompt, transcript) {
-  const payload = JSON.stringify({ prompt, transcript_path: String(transcript) });
+  const payload = JSON.stringify({
+    prompt,
+    transcript_path: String(transcript),
+    cwd: CONFIG_SANDBOX,
+  });
   try {
     const out = execFileSync(process.execPath, [HOOK], {
       input: payload,
       encoding: 'utf8',
-      // Config layering is tested separately; keep the environment neutral so a
-      // developer's own CONTEXT_GUARD_* vars cannot flip a case.
-      env: Object.assign({}, process.env, {
-        CONTEXT_GUARD_LIMIT: '',
-        CONTEXT_GUARD_MODE: '',
-        CONTEXT_GUARD_BYPASS: '',
-        CONTEXT_GUARD_MIN_RECORDS: '',
-      }),
+      env: NEUTRAL_ENV,
     });
     return { code: 0, out: out.trim() };
   } catch (e) {
@@ -91,10 +106,12 @@ function main() {
 
   // 3. over limit but under minRecords -> deadlock guard
   const t3 = path.join(tmp, 'few.jsonl');
-  // Sized off LIMIT so the case stays "over limit" whatever the default is.
-  writeLines(t3, [userRecord(LIMIT * 4), userRecord(LIMIT * 4)]);
+  // Sized off LIMIT so the case stays "over limit", and one record short of
+  // minRecords so it stays "too few" whatever those defaults are.
+  writeLines(t3, Array.from({ length: MIN_RECORDS - 1 }, () => userRecord(LIMIT * 4)));
   r = run('hello', t3);
-  check('over limit, <3 records: deadlock guard silent', r.code === 0 && r.out === '', r.out.slice(0, 80));
+  check(`over limit, <${MIN_RECORDS} records: deadlock guard silent`,
+    r.code === 0 && r.out === '', r.out.slice(0, 80));
 
   // 4. bypass prefix
   r = run('!! run anyway', t2);
@@ -115,9 +132,10 @@ function main() {
   check('missing transcript: silent, no crash', r.code === 0 && r.out === '', r.out.slice(0, 120));
 
   // 7. message.usage beats chars/4
-  // The three user records are a few bytes each, so chars/4 is nowhere near the
-  // limit: the guard can only fire off the usage accounting. Split across all
-  // three usage fields to prove they are summed, and sized off LIMIT.
+  // The leading user records are a few bytes each, so chars/4 is nowhere near
+  // the limit: the guard can only fire off the usage accounting. Split across
+  // all three usage fields to prove they are summed, sized off LIMIT, and
+  // padded to minRecords so the deadlock guard is not what silences it.
   const t7 = path.join(tmp, 'usage-over.jsonl');
   const usage = {
     input_tokens: 20,
@@ -126,9 +144,7 @@ function main() {
   };
   const usageTotal = usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens;
   writeLines(t7, [
-    { type: 'user', message: { role: 'user', content: 'hi' } },
-    { type: 'user', message: { role: 'user', content: 'hi' } },
-    { type: 'user', message: { role: 'user', content: 'hi' } },
+    ...Array.from({ length: MIN_RECORDS - 1 }, () => userRecord(2)),
     { type: 'assistant', message: { role: 'assistant', usage } },
   ]);
   r = run('hello', t7);
@@ -148,11 +164,15 @@ function main() {
   // 9. fallback counts attachment records, not just `message`
   const t9 = path.join(tmp, 'fallback.jsonl');
   // Each attachment is LIMIT * 2 chars, so chars/4 over three of them is
-  // 1.5 * LIMIT — over the limit only if attachment records are counted at all.
+  // already 1.5 * LIMIT — over the limit only if attachment records are counted
+  // at all. Count also padded to minRecords, so a silent result can only mean
+  // the attachments went uncounted.
+  const attachments = Math.max(3, MIN_RECORDS - 1);
   writeLines(t9, [
-    { type: 'attachment', content: 'x'.repeat(LIMIT * 2) },
-    { type: 'attachment', content: 'x'.repeat(LIMIT * 2) },
-    { type: 'attachment', content: 'x'.repeat(LIMIT * 2) },
+    ...Array.from({ length: attachments }, () => ({
+      type: 'attachment',
+      content: 'x'.repeat(LIMIT * 2),
+    })),
     { type: 'user', message: { role: 'user', content: 'hi' } },
   ]);
   r = run('hello', t9);
@@ -180,9 +200,9 @@ function main() {
   const envRun = (() => {
     try {
       const out = execFileSync(process.execPath, [HOOK], {
-        input: JSON.stringify({ prompt: 'hello', transcript_path: t1 }),
+        input: JSON.stringify({ prompt: 'hello', transcript_path: t1, cwd: CONFIG_SANDBOX }),
         encoding: 'utf8',
-        env: Object.assign({}, process.env, { CONTEXT_GUARD_LIMIT: '100' }),
+        env: Object.assign({}, NEUTRAL_ENV, { CONTEXT_GUARD_LIMIT: '100' }),
       });
       return out.trim();
     } catch (e) { return ''; }

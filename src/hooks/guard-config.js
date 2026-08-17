@@ -32,7 +32,7 @@ const DEFAULTS = {
   bypass: '!!',
   // Below this many transcript records since the last compact boundary, never
   // fire: there is nothing left to compact, so firing would trap the session.
-  minRecords: 3,
+  minRecords: 5,
 };
 
 function readJsonFile(file) {

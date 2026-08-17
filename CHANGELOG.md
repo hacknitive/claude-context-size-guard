@@ -4,6 +4,28 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — 2026-08-17
+
+### Changed
+
+- **Default `minRecords` raised from 3 to 5.** The deadlock guard now needs five
+  records since the last compact boundary before the guard may fire, giving a
+  freshly compacted session more room before it can be told to compact again.
+
+### Fixed
+
+- **The self-test no longer reads the developer's own user config.** It
+  neutralised `CONTEXT_GUARD_*` env vars but still let
+  `~/.config/claude-context-size-guard/config.json` (and `%APPDATA%` on Windows)
+  through, so cases asserting against the built-in defaults failed on any
+  machine that had a real user config — while passing in CI, which has none.
+  `XDG_CONFIG_HOME`/`APPDATA` now point at an empty temp dir for the duration of
+  the run, and `cwd` is set to that same dir so the repo-local layer cannot
+  interfere either.
+- Cases 3, 7, and 9 size their record counts off `minRecords` instead of
+  hardcoding 3 or 4, so a future change to that default cannot silence them into
+  a false pass.
+
 ## [1.1.0] — 2026-08-17
 
 ### Changed

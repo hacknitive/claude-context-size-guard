@@ -104,7 +104,7 @@ Config file shape — every key optional:
   "mode": "warn",
   "limit": 100000,
   "bypass": "!!",
-  "minRecords": 3
+  "minRecords": 5
 }
 ```
 
@@ -113,7 +113,7 @@ Config file shape — every key optional:
 | `mode` | `"warn"` | `"warn"` injects a directive and Claude speaks the notice. `"block"` discards the prompt — see below. |
 | `limit` | `100000` | Estimated tokens of live context before the guard fires. |
 | `bypass` | `"!!"` | Prompt prefix that skips the guard for that one prompt. |
-| `minRecords` | `3` | Below this many records since the last compact, never fire. |
+| `minRecords` | `5` | Below this many records since the last compact, never fire. |
 
 A malformed config file is ignored rather than crashing the hook — a crashing `UserPromptSubmit` hook puts a red banner on every prompt, which is worse than falling back to defaults.
 
