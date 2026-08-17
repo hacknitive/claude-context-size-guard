@@ -46,7 +46,7 @@ CLAUDE_CONFIG_DIR=/tmp/fake-claude-dir node test/selftest.js --installed
 echo '{"prompt":"hi","transcript_path":"/path/to/session.jsonl"}' | node src/hooks/context-size-guard.js
 ```
 
-Regression checks that matter when touching the installer: install over a `settings.json` that already contains a foreign hook (it must survive), install twice (exactly one guard entry), install over a `settings.json` containing `//` comments (must parse), install over broken JSON (must refuse and change nothing).
+Regression checks that matter when touching the installer: install over a `settings.json` that already contains a foreign hook (it must survive), install twice (exactly one guard entry), install over a `settings.json` containing `//` comments (must parse), install over broken JSON (must refuse and change nothing), install over a `settings.json` that is a **symlink** to a shared file (the symlink must survive — multi-account setups share one file across `~/.claude-<account>/` dirs, and `writeSettings` resolves with `realpathSync` before its temp-file rename for exactly this reason).
 
 ## Version bumps
 

@@ -182,6 +182,34 @@ function main() {
   check('CONTEXT_GUARD_LIMIT env override fires the guard',
     envRun.includes('CONTEXT GUARD TRIPPED'), envRun.slice(0, 90));
 
+  // 13. installing over a symlinked settings.json keeps the symlink intact.
+  // Multi-account setups share one settings.json across ~/.claude-<account>/
+  // dirs by symlink; a rename over the link would silently un-share it.
+  const linkRoot = path.join(tmp, 'symlink-case');
+  const shared = path.join(linkRoot, 'shared', 'settings.json');
+  const account = path.join(linkRoot, 'account');
+  fs.mkdirSync(path.dirname(shared), { recursive: true });
+  fs.mkdirSync(account, { recursive: true });
+  fs.writeFileSync(shared, JSON.stringify({ hooks: {}, permissions: { allow: ['Bash(ls:*)'] } }, null, 2));
+  fs.symlinkSync(shared, path.join(account, 'settings.json'));
+  let symlinkOk = false;
+  let symlinkDetail = '';
+  try {
+    execFileSync(process.execPath, [path.join(__dirname, '..', 'bin', 'install.js')], {
+      encoding: 'utf8',
+      env: Object.assign({}, process.env, { CLAUDE_CONFIG_DIR: account }),
+    });
+    const stillLink = fs.lstatSync(path.join(account, 'settings.json')).isSymbolicLink();
+    const merged = JSON.parse(fs.readFileSync(shared, 'utf8'));
+    const hasHook = JSON.stringify(merged.hooks || {}).includes('context-size-guard');
+    const keptForeign = (merged.permissions || {}).allow?.[0] === 'Bash(ls:*)';
+    symlinkOk = stillLink && hasHook && keptForeign;
+    symlinkDetail = `link=${stillLink} hook=${hasHook} kept=${keptForeign}`;
+  } catch (e) {
+    symlinkDetail = String(e.message).slice(0, 90);
+  }
+  check('install over a symlinked settings.json keeps the symlink', symlinkOk, symlinkDetail);
+
   fs.rmSync(tmp, { recursive: true, force: true });
 
   const passed = results.filter(Boolean).length;

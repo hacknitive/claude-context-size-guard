@@ -59,8 +59,15 @@ function readSettings(settingsPath) {
 
 // Write via a temp file + rename so an interrupted install cannot leave a
 // truncated settings.json behind. A .bak is kept, never clobbered.
+//
+// The rename target must be the REAL file, not a symlink to it. Multi-account
+// setups routinely symlink every ~/.claude-<account>/settings.json at one
+// shared ~/.claude/settings.json; renaming over the link would replace it with
+// a regular file and silently un-share that account's config. Resolve first,
+// then write and back up next to the resolved path.
 function writeSettings(settingsPath, obj) {
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  try { settingsPath = fs.realpathSync(settingsPath); } catch (e) { /* new or dangling: write in place */ }
   if (fs.existsSync(settingsPath)) {
     let bak = settingsPath + '.bak';
     let n = 0;

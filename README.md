@@ -70,7 +70,7 @@ node test/selftest.js               # test the repo copy
 node test/selftest.js --installed   # test the copy in $CLAUDE_CONFIG_DIR
 ```
 
-Expect `12/12 passed`.
+Expect `13/13 passed`.
 
 ---
 
