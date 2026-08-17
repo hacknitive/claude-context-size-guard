@@ -1,0 +1,22 @@
+{
+  "name": "claude-context-size-guard",
+  "version": "1.0.0",
+  "description": "Claude Code hook that stops you sending a prompt into an already-bloated context. Measures live context size and tells you to run /compact past a token threshold.",
+  "license": "MIT",
+  "author": "hacknitive",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hacknitive/claude-context-size-guard"
+  },
+  "bin": {
+    "claude-context-size-guard-install": "bin/install.js"
+  },
+  "scripts": {
+    "install-hooks": "node bin/install.js",
+    "uninstall-hooks": "node bin/install.js --uninstall",
+    "test": "node test/selftest.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
