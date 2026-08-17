@@ -4,6 +4,9 @@
 
 # claude-context-size-guard
 
+[![test](https://github.com/hacknitive/claude-context-size-guard/actions/workflows/test.yml/badge.svg)](https://github.com/hacknitive/claude-context-size-guard/actions/workflows/test.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Stops you from sending a prompt into an already-bloated context.
 
 A `UserPromptSubmit` hook for [Claude Code](https://claude.com/claude-code). It measures the live context on every prompt and, once it passes a threshold (default **75,000 tokens**), Claude answers with a one-line notice telling you to run `/compact` — instead of burning a full expensive turn on a context that should have been compacted three prompts ago.

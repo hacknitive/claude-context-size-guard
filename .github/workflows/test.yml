@@ -1,0 +1,100 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  selftest:
+    name: selftest (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ['18', '20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: selftest (repo copy)
+        run: node test/selftest.js
+
+  installer-posix:
+    name: installer end-to-end (posix)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: dry-run changes nothing
+        run: |
+          ./install.sh --dry-run --config-dir "$RUNNER_TEMP/cfg"
+          test ! -e "$RUNNER_TEMP/cfg/settings.json"
+      - name: foreign hook and settings survive install
+        run: |
+          mkdir -p "$RUNNER_TEMP/cfg"
+          cat > "$RUNNER_TEMP/cfg/settings.json" <<'JSON'
+          {
+            "permissions": { "allow": ["Bash(ls:*)"] },
+            "hooks": {
+              "UserPromptSubmit": [
+                { "hooks": [{ "type": "command", "command": "echo foreign-hook" }] }
+              ]
+            }
+          }
+          JSON
+          ./install.sh --config-dir "$RUNNER_TEMP/cfg"
+          ./install.sh --config-dir "$RUNNER_TEMP/cfg"   # idempotent: still one entry
+          grep -q 'foreign-hook' "$RUNNER_TEMP/cfg/settings.json"
+          grep -q 'Bash(ls:\*)' "$RUNNER_TEMP/cfg/settings.json"
+          test "$(grep -c 'context-size-guard' "$RUNNER_TEMP/cfg/settings.json")" = "1"
+      - name: installed copy passes the selftest
+        run: CLAUDE_CONFIG_DIR="$RUNNER_TEMP/cfg" node test/selftest.js --installed
+      - name: uninstall strips only our entry
+        run: |
+          ./install.sh --uninstall --config-dir "$RUNNER_TEMP/cfg"
+          grep -q 'foreign-hook' "$RUNNER_TEMP/cfg/settings.json"
+          ! grep -q 'context-size-guard' "$RUNNER_TEMP/cfg/settings.json"
+      - name: broken settings.json is refused, file untouched
+        run: |
+          mkdir -p "$RUNNER_TEMP/broken"
+          printf '{ this is not json' > "$RUNNER_TEMP/broken/settings.json"
+          before=$(cat "$RUNNER_TEMP/broken/settings.json")
+          ! ./install.sh --config-dir "$RUNNER_TEMP/broken"
+          test "$(cat "$RUNNER_TEMP/broken/settings.json")" = "$before"
+      - name: JSONC settings.json parses
+        run: |
+          mkdir -p "$RUNNER_TEMP/jsonc"
+          printf '{\n  // a comment\n  "model": "opus"\n}\n' > "$RUNNER_TEMP/jsonc/settings.json"
+          ./install.sh --config-dir "$RUNNER_TEMP/jsonc"
+          grep -q 'context-size-guard' "$RUNNER_TEMP/jsonc/settings.json"
+
+  installer-windows:
+    name: installer end-to-end (powershell)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: install.ps1 dry-run
+        shell: pwsh
+        run: .\install.ps1 --dry-run --config-dir "$env:RUNNER_TEMP\cfg"
+      - name: install.ps1 installs and uninstalls
+        shell: pwsh
+        run: |
+          .\install.ps1 --config-dir "$env:RUNNER_TEMP\cfg"
+          if (-not (Select-String -Path "$env:RUNNER_TEMP\cfg\settings.json" -Pattern 'context-size-guard' -Quiet)) {
+            throw 'hook entry missing after install'
+          }
+          $env:CLAUDE_CONFIG_DIR = "$env:RUNNER_TEMP\cfg"
+          node test/selftest.js --installed
+          .\install.ps1 --uninstall --config-dir "$env:RUNNER_TEMP\cfg"
+          if (Select-String -Path "$env:RUNNER_TEMP\cfg\settings.json" -Pattern 'context-size-guard' -Quiet) {
+            throw 'hook entry survived uninstall'
+          }
