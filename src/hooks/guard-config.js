@@ -24,10 +24,10 @@ const DEFAULTS = {
   //           UserPromptSubmit, so the prompt vanishes with no explanation on
   //           screen. Kept for reference; "warn" is the mode that communicates.
   mode: 'warn',
-  // Estimated tokens of live context before the guard fires. 75,000 suits a
-  // 200k window (fires around 37% full, early enough that /compact still has
+  // Estimated tokens of live context before the guard fires. 100,000 suits a
+  // 200k window (fires at half full, early enough that /compact still has
   // room to work). On a 1M window, 200000–400000 is reasonable.
-  limit: 75000,
+  limit: 100000,
   // Prompt prefix that skips the guard for that one prompt.
   bypass: '!!',
   // Below this many transcript records since the last compact boundary, never

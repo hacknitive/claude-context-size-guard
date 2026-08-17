@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-08-17
+
+### Changed
+
+- **Default `limit` raised from 75,000 to 100,000 tokens.** 75,000 fired at
+  around 37% of a 200k window, early enough to be noise on sessions that were
+  never going to need a compact. 100,000 fires at half full, which still leaves
+  `/compact` plenty of room. Anyone who wants the old threshold can set
+  `{"limit": 75000}` in a user or repo-local config, or `CONTEXT_GUARD_LIMIT`.
+- The self-test now reads the default off the `guard-config.js` sitting beside
+  the hook under test instead of hardcoding it, so a changed default cannot
+  silently desync from the cases.
+
 ## [1.0.1] — 2026-08-17
 
 ### Fixed

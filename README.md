@@ -9,10 +9,10 @@
 
 Stops you from sending a prompt into an already-bloated context.
 
-A `UserPromptSubmit` hook for [Claude Code](https://claude.com/claude-code). It measures the live context on every prompt and, once it passes a threshold (default **75,000 tokens**), Claude answers with a one-line notice telling you to run `/compact` — instead of burning a full expensive turn on a context that should have been compacted three prompts ago.
+A `UserPromptSubmit` hook for [Claude Code](https://claude.com/claude-code). It measures the live context on every prompt and, once it passes a threshold (default **100,000 tokens**), Claude answers with a one-line notice telling you to run `/compact` — instead of burning a full expensive turn on a context that should have been compacted three prompts ago.
 
 ```
-Context guard: ~104,198 tokens, over the 75,000 limit. Run /compact, then resend.
+Context guard: ~104,198 tokens, over the 100,000 limit. Run /compact, then resend.
 Bypass once by prefixing the prompt with !!
 ```
 
@@ -102,7 +102,7 @@ Config file shape — every key optional:
 ```json
 {
   "mode": "warn",
-  "limit": 75000,
+  "limit": 100000,
   "bypass": "!!",
   "minRecords": 3
 }
@@ -111,13 +111,13 @@ Config file shape — every key optional:
 | Key | Default | Meaning |
 |---|---|---|
 | `mode` | `"warn"` | `"warn"` injects a directive and Claude speaks the notice. `"block"` discards the prompt — see below. |
-| `limit` | `75000` | Estimated tokens of live context before the guard fires. |
+| `limit` | `100000` | Estimated tokens of live context before the guard fires. |
 | `bypass` | `"!!"` | Prompt prefix that skips the guard for that one prompt. |
 | `minRecords` | `3` | Below this many records since the last compact, never fire. |
 
 A malformed config file is ignored rather than crashing the hook — a crashing `UserPromptSubmit` hook puts a red banner on every prompt, which is worse than falling back to defaults.
 
-**Tuning `limit`.** 75,000 suits a 200k-token window: it fires around 37% full, early enough that `/compact` still has plenty of room to work. On a 1M-token window, 200,000–400,000 is reasonable. A repo-local `.context-guard.json` lets one heavy monorepo run a higher threshold than the rest of your work.
+**Tuning `limit`.** 100,000 suits a 200k-token window: it fires at half full, early enough that `/compact` still has plenty of room to work. On a 1M-token window, 200,000–400,000 is reasonable. A repo-local `.context-guard.json` lets one heavy monorepo run a higher threshold than the rest of your work.
 
 **On `mode: "block"`.** Claude Code renders neither `reason` nor `systemMessage` for a blocked `UserPromptSubmit`, so your prompt disappears with no explanation on screen (it is stashed to `tmp/blocked-prompt.txt` so it is recoverable). `"warn"` is the mode that actually communicates. `"block"` is kept for completeness.
 

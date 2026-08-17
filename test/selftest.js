@@ -12,8 +12,6 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const LIMIT = 75000;
-
 function hookPath() {
   if (process.argv.includes('--installed')) {
     const base = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
@@ -23,6 +21,9 @@ function hookPath() {
 }
 
 const HOOK = hookPath();
+// Read the default straight off the config module that sits beside the hook
+// under test, so a changed default cannot silently desync from these cases.
+const LIMIT = require(path.join(path.dirname(HOOK), 'guard-config.js')).DEFAULTS.limit;
 const results = [];
 
 function run(prompt, transcript) {
@@ -90,7 +91,8 @@ function main() {
 
   // 3. over limit but under minRecords -> deadlock guard
   const t3 = path.join(tmp, 'few.jsonl');
-  writeLines(t3, [userRecord(200000), userRecord(200000)]);
+  // Sized off LIMIT so the case stays "over limit" whatever the default is.
+  writeLines(t3, [userRecord(LIMIT * 4), userRecord(LIMIT * 4)]);
   r = run('hello', t3);
   check('over limit, <3 records: deadlock guard silent', r.code === 0 && r.out === '', r.out.slice(0, 80));
 
@@ -113,21 +115,25 @@ function main() {
   check('missing transcript: silent, no crash', r.code === 0 && r.out === '', r.out.slice(0, 120));
 
   // 7. message.usage beats chars/4
+  // The three user records are a few bytes each, so chars/4 is nowhere near the
+  // limit: the guard can only fire off the usage accounting. Split across all
+  // three usage fields to prove they are summed, and sized off LIMIT.
   const t7 = path.join(tmp, 'usage-over.jsonl');
+  const usage = {
+    input_tokens: 20,
+    cache_read_input_tokens: LIMIT,
+    cache_creation_input_tokens: 1038,
+  };
+  const usageTotal = usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens;
   writeLines(t7, [
     { type: 'user', message: { role: 'user', content: 'hi' } },
     { type: 'user', message: { role: 'user', content: 'hi' } },
     { type: 'user', message: { role: 'user', content: 'hi' } },
-    {
-      type: 'assistant',
-      message: {
-        role: 'assistant',
-        usage: { input_tokens: 20, cache_read_input_tokens: 95780, cache_creation_input_tokens: 1038 },
-      },
-    },
+    { type: 'assistant', message: { role: 'assistant', usage } },
   ]);
   r = run('hello', t7);
-  check('usage beats chars/4 (96,838 real tokens)', r.out.includes('96,838'), r.out.slice(0, 90));
+  const usageLabel = usageTotal.toLocaleString('en-US');
+  check(`usage beats chars/4 (${usageLabel} real tokens)`, r.out.includes(usageLabel), r.out.slice(0, 90));
 
   // 8. usage under limit on a physically large transcript
   const t8 = path.join(tmp, 'usage-under.jsonl');
@@ -141,10 +147,12 @@ function main() {
 
   // 9. fallback counts attachment records, not just `message`
   const t9 = path.join(tmp, 'fallback.jsonl');
+  // Each attachment is LIMIT * 2 chars, so chars/4 over three of them is
+  // 1.5 * LIMIT — over the limit only if attachment records are counted at all.
   writeLines(t9, [
-    { type: 'attachment', content: 'x'.repeat(120000) },
-    { type: 'attachment', content: 'x'.repeat(120000) },
-    { type: 'attachment', content: 'x'.repeat(120000) },
+    { type: 'attachment', content: 'x'.repeat(LIMIT * 2) },
+    { type: 'attachment', content: 'x'.repeat(LIMIT * 2) },
+    { type: 'attachment', content: 'x'.repeat(LIMIT * 2) },
     { type: 'user', message: { role: 'user', content: 'hi' } },
   ]);
   r = run('hello', t9);
