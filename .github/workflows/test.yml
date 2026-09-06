@@ -49,10 +49,27 @@ jobs:
           }
           JSON
           ./install.sh --config-dir "$RUNNER_TEMP/cfg"
-          ./install.sh --config-dir "$RUNNER_TEMP/cfg"   # idempotent: still one entry
+          first=$(grep -c 'context-size-guard' "$RUNNER_TEMP/cfg/settings.json")
+          ./install.sh --config-dir "$RUNNER_TEMP/cfg"   # idempotent: no duplicates
+          second=$(grep -c 'context-size-guard' "$RUNNER_TEMP/cfg/settings.json")
           grep -q 'foreign-hook' "$RUNNER_TEMP/cfg/settings.json"
           grep -q 'Bash(ls:\*)' "$RUNNER_TEMP/cfg/settings.json"
-          test "$(grep -c 'context-size-guard' "$RUNNER_TEMP/cfg/settings.json")" = "1"
+          # One entry per event the mode registry dispatches to, and a second
+          # install must not add more.
+          events=$(node -e 'const {MODE_EVENTS}=require("./src/hooks/guard-config");console.log(new Set(Object.values(MODE_EVENTS).filter(Boolean)).size)')
+          test "$first" = "$events"
+          test "$second" = "$events"
+          # and each of those events actually carries the entry
+          node -e '
+            const fs=require("fs");
+            const {MODE_EVENTS}=require("./src/hooks/guard-config");
+            const s=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/cfg/settings.json","utf8"));
+            for (const ev of new Set(Object.values(MODE_EVENTS).filter(Boolean))) {
+              if (!JSON.stringify(s.hooks[ev]||[]).includes("context-size-guard")) {
+                throw new Error("guard entry missing on event "+ev);
+              }
+            }
+          '
       - name: installed copy passes the selftest
         run: CLAUDE_CONFIG_DIR="$RUNNER_TEMP/cfg" node test/selftest.js --installed
       - name: uninstall strips only our entry
