@@ -91,6 +91,22 @@ function userRecord(chars) {
   return { type: 'user', message: { role: 'user', content: 'x'.repeat(chars) } };
 }
 
+// Fixture sizes are written in tokens and converted here. The fallback counts
+// chars/4 over the whole record, so this over-shoots slightly -- fine, since
+// every fixture is deliberately far from the threshold rather than near it.
+function chars(tokens) {
+  return Math.max(1, Math.floor(tokens * 4));
+}
+
+// Measure a fixture the way the hook does, so a case can assert that its own
+// premise still holds. Without this, a changed default silently turns an
+// over-limit fixture into an under-limit one and the case stops testing
+// anything -- which is exactly what happened to the usage-vs-fallback case.
+function measure(file) {
+  const { estimateTokens } = require(path.join(path.dirname(HOOK), 'context-size-guard.js'));
+  return estimateTokens(file).tokens;
+}
+
 function main() {
   if (!fs.existsSync(HOOK)) {
     process.stdout.write(`FAIL: hook not found at ${HOOK}\n`);
@@ -102,7 +118,7 @@ function main() {
 
   // 1. under limit -> silent
   const t1 = path.join(tmp, 'under.jsonl');
-  writeLines(t1, Array.from({ length: 10 }, () => userRecord(1000)));
+  writeLines(t1, Array.from({ length: 10 }, () => userRecord(chars(LIMIT / 50))));
   let r = run('hello', t1);
   check('under limit: silent, exit 0', r.code === 0 && r.out === '', `code=${r.code} out=${r.out.slice(0, 80)}`);
 
@@ -138,9 +154,9 @@ function main() {
   // 5. compact boundary resets the window
   const t5 = path.join(tmp, 'boundary.jsonl');
   writeLines(t5, [
-    userRecord(400000),
+    userRecord(chars(LIMIT * 4)),
     { subtype: 'compact_boundary' },
-    ...Array.from({ length: 5 }, () => userRecord(1000)),
+    ...Array.from({ length: 5 }, () => userRecord(chars(LIMIT / 50))),
   ]);
   r = run('hello', t5);
   check('compact boundary resets estimate', r.code === 0 && r.out === '', r.out.slice(0, 80));
@@ -172,12 +188,18 @@ function main() {
   // 8. usage under limit on a physically large transcript
   const t8 = path.join(tmp, 'usage-under.jsonl');
   writeLines(t8, [
-    { type: 'attachment', content: 'x'.repeat(400000) },
-    { type: 'assistant', message: { role: 'assistant', usage: { input_tokens: 12000 } } },
+    { type: 'attachment', content: 'x'.repeat(chars(LIMIT * 2)) },
+    { type: 'assistant', message: { role: 'assistant', usage: { input_tokens: Math.floor(LIMIT / 2) } } },
     { type: 'user', message: { role: 'user', content: 'hi' } },
   ]);
+  // Premise: without the usage record this transcript is over the limit.
+  // If that ever stops being true the case proves nothing.
+  const t8NoUsage = path.join(tmp, 'usage-under-premise.jsonl');
+  writeLines(t8NoUsage, [{ type: 'attachment', content: 'x'.repeat(chars(LIMIT * 2)) }]);
+  check('premise: the fallback alone would fire on t8', measure(t8NoUsage) > LIMIT,
+    `fallback=${measure(t8NoUsage)} limit=${LIMIT}`);
   r = run('hello', t8);
-  check('usage under limit despite 400k chars: silent', r.code === 0 && r.out === '', r.out.slice(0, 90));
+  check('usage beats an over-limit fallback: silent', r.code === 0 && r.out === '', r.out.slice(0, 90));
 
   // 9. fallback counts attachment records, not just `message`
   const t9 = path.join(tmp, 'fallback.jsonl');
@@ -199,8 +221,8 @@ function main() {
   // 10. bookkeeping record types excluded from the fallback
   const t10 = path.join(tmp, 'bookkeeping.jsonl');
   writeLines(t10, [
-    { type: 'file-history-snapshot', content: 'x'.repeat(400000) },
-    { type: 'ai-title', content: 'x'.repeat(400000) },
+    { type: 'file-history-snapshot', content: 'x'.repeat(chars(LIMIT)) },
+    { type: 'ai-title', content: 'x'.repeat(chars(LIMIT)) },
     { type: 'user', message: { role: 'user', content: 'hi' } },
   ]);
   r = run('hello', t10);
@@ -255,6 +277,9 @@ function main() {
     symlinkDetail = String(e.message).slice(0, 90);
   }
   check('install over a symlinked settings.json keeps the symlink', symlinkOk, symlinkDetail);
+
+  check('premise: t2 is over the limit, t1 under', measure(t2) > LIMIT && measure(t1) < LIMIT,
+    `t2=${measure(t2)} t1=${measure(t1)} limit=${LIMIT}`);
 
   // ---- modes -------------------------------------------------------------
   // t2 is over the limit with enough records, so every case below fires or
@@ -354,6 +379,45 @@ function main() {
   }
   check('installer wires every mode event', eventsOk, eventsDetail);
   check('uninstall strips every mode event', strippedOk, '');
+
+  // --config-dir scopes the Claude config dir, but the guard's own config file
+  // lives elsewhere (XDG / %APPDATA%). Writing --limit during a scoped install
+  // used to modify the developer's real config file -- it did, twice, during
+  // development. It must now refuse rather than reach outside the scope.
+  const scopeDir = path.join(tmp, 'scope-case');
+  const sentinel = path.join(tmp, 'sentinel-config');
+  fs.mkdirSync(scopeDir, { recursive: true });
+  fs.mkdirSync(path.join(sentinel, 'claude-context-size-guard'), { recursive: true });
+  const sentinelFile = path.join(sentinel, 'claude-context-size-guard', 'config.json');
+  fs.writeFileSync(sentinelFile, JSON.stringify({ limit: 4242 }) + '\n');
+  const scopedEnv = Object.assign({}, process.env, {
+    XDG_CONFIG_HOME: sentinel,
+    APPDATA: sentinel,
+  });
+
+  let refused = false;
+  try {
+    execFileSync(process.execPath,
+      [installer, '--config-dir', scopeDir, '--limit', '999999'],
+      { encoding: 'utf8', env: scopedEnv, stdio: 'pipe' });
+  } catch (e) {
+    refused = true;  // non-zero exit is the refusal
+  }
+  const untouched = JSON.parse(fs.readFileSync(sentinelFile, 'utf8')).limit === 4242;
+  check('--limit with --config-dir refuses, leaving the user config alone',
+    refused && untouched, `refused=${refused} untouched=${untouched}`);
+
+  // ...and --user-config is the way to scope it.
+  const scopedTarget = path.join(scopeDir, 'guard.json');
+  let scopedOk = false;
+  try {
+    execFileSync(process.execPath,
+      [installer, '--config-dir', scopeDir, '--user-config', scopedTarget, '--limit', '999999'],
+      { encoding: 'utf8', env: scopedEnv });
+    scopedOk = JSON.parse(fs.readFileSync(scopedTarget, 'utf8')).limit === 999999 &&
+      JSON.parse(fs.readFileSync(sentinelFile, 'utf8')).limit === 4242;
+  } catch (e) { /* leave false */ }
+  check('--user-config writes there and nowhere else', scopedOk, '');
 
   fs.rmSync(tmp, { recursive: true, force: true });
 

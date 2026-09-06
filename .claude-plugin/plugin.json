@@ -1,6 +1,6 @@
 {
   "name": "claude-context-size-guard",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Stops you from sending a prompt into an already-bloated context. Measures live context size and, past a configurable token threshold (default 150,000), warns you to run /compact — before the prompt or after the answer, costing a model turn or nothing, depending on the mode.",
   "author": {
     "name": "hacknitive",

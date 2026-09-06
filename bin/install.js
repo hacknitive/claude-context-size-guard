@@ -15,8 +15,13 @@
 //   --config-dir P  install into P instead of $CLAUDE_CONFIG_DIR / ~/.claude
 //   --all-accounts  install into every ~/.claude-* directory that looks like a
 //                   Claude Code config dir. Convenience for multi-account setups.
-//   --limit N       write {"limit": N} into the user config file
-//   --mode M        write {"mode": M} into the user config file
+//   --limit N       write {"limit": N} into the guard's config file
+//   --mode M        write {"mode": M} into the guard's config file
+//   --user-config P write those to P instead of the default config path.
+//                   Required alongside --config-dir: that flag scopes the
+//                   Claude config dir, not the guard's own config file, so
+//                   without this a scoped install would still overwrite the
+//                   real one.
 //   --help          print usage
 
 const fs = require('fs');
@@ -32,12 +37,12 @@ const HOOK_EVENTS = [...new Set(Object.values(MODE_EVENTS).filter(Boolean))];
 function log(msg) { process.stdout.write(msg + '\n'); }
 
 function usage() {
-  log('Usage: node bin/install.js [--dry-run] [--uninstall] [--config-dir PATH] [--all-accounts] [--limit N] [--mode M]');
+  log('Usage: node bin/install.js [--dry-run] [--uninstall] [--config-dir PATH] [--all-accounts] [--limit N] [--mode M] [--user-config PATH]');
   log(`       modes: ${MODES.join(', ')}`);
 }
 
 function parseArgs(argv) {
-  const args = { dryRun: false, uninstall: false, configDir: null, allAccounts: false, limit: null, mode: null };
+  const args = { dryRun: false, uninstall: false, configDir: null, allAccounts: false, limit: null, mode: null, userConfig: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--dry-run') args.dryRun = true;
@@ -46,6 +51,7 @@ function parseArgs(argv) {
     else if (a === '--config-dir') { args.configDir = argv[++i]; }
     else if (a === '--limit') { args.limit = parseInt(argv[++i], 10); }
     else if (a === '--mode') { args.mode = argv[++i]; }
+    else if (a === '--user-config') { args.userConfig = argv[++i]; }
     else if (a === '--help' || a === '-h') { usage(); process.exit(0); }
     else { log(`unknown flag: ${a}`); usage(); process.exit(2); }
   }
@@ -55,6 +61,17 @@ function parseArgs(argv) {
   }
   if (args.mode !== null && !MODES.includes(args.mode)) {
     log(`--mode must be one of: ${MODES.join(', ')}`);
+    process.exit(2);
+  }
+  // --config-dir scopes where the hook and settings.json go. The guard's own
+  // config file lives outside that dir (XDG on POSIX, %APPDATA% on Windows),
+  // so writing --limit/--mode during a scoped install would silently modify
+  // the real user config -- which is never what someone installing into a
+  // scratch dir wants. Refuse instead of guessing.
+  if (args.configDir && args.userConfig === null && (args.limit !== null || args.mode !== null)) {
+    log('--limit/--mode with --config-dir would write to the real user config:');
+    log(`  ${userConfigPath()}`);
+    log('Pass --user-config PATH to scope it, or drop --limit/--mode.');
     process.exit(2);
   }
   return args;
@@ -95,8 +112,8 @@ function removeTree(target, dryRun) {
   fs.rmSync(target, { recursive: true, force: true });
 }
 
-function writeUserConfig(key, value, dryRun) {
-  const file = userConfigPath();
+function writeUserConfig(key, value, dryRun, target) {
+  const file = target || userConfigPath();
   let existing = {};
   try {
     if (fs.existsSync(file)) existing = JSON.parse(fs.readFileSync(file, 'utf8')) || {};
@@ -137,8 +154,8 @@ function install(target, args) {
 
   if (!args.dryRun) writeSettings(settingsPath, settings);
   log(`  merged hook into ${settingsPath} (${HOOK_EVENTS.join(', ')})`);
-  if (args.limit !== null) writeUserConfig('limit', args.limit, args.dryRun);
-  if (args.mode !== null) writeUserConfig('mode', args.mode, args.dryRun);
+  if (args.limit !== null) writeUserConfig('limit', args.limit, args.dryRun, args.userConfig);
+  if (args.mode !== null) writeUserConfig('mode', args.mode, args.dryRun, args.userConfig);
   log(`[${target}] done`);
 }
 
