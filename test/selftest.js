@@ -44,22 +44,38 @@ const NEUTRAL_ENV = Object.assign({}, process.env, {
   APPDATA: CONFIG_SANDBOX,
 });
 
-function run(prompt, transcript) {
-  const payload = JSON.stringify({
+// opts: { event, mode, stopHookActive } — all optional. Omitting `event`
+// exercises the pre-modes stdin shape, which must still behave as
+// UserPromptSubmit.
+function run(prompt, transcript, opts) {
+  const o = opts || {};
+  const stdin = {
     prompt,
     transcript_path: String(transcript),
     cwd: CONFIG_SANDBOX,
-  });
+  };
+  if (o.event) stdin.hook_event_name = o.event;
+  if (o.stopHookActive) stdin.stop_hook_active = true;
+
+  const env = Object.assign({}, NEUTRAL_ENV);
+  if (o.mode) env.CONTEXT_GUARD_MODE = o.mode;
+
   try {
     const out = execFileSync(process.execPath, [HOOK], {
-      input: payload,
+      input: JSON.stringify(stdin),
       encoding: 'utf8',
-      env: NEUTRAL_ENV,
+      env,
     });
     return { code: 0, out: out.trim() };
   } catch (e) {
     return { code: e.status === undefined ? 1 : e.status, out: String(e.stdout || '').trim() };
   }
+}
+
+// Parsed payload, or null when the hook stayed silent.
+function payloadOf(r) {
+  if (!r.out) return null;
+  try { return JSON.parse(r.out); } catch (e) { return null; }
 }
 
 function check(name, condition, detail) {
@@ -237,6 +253,98 @@ function main() {
     symlinkDetail = String(e.message).slice(0, 90);
   }
   check('install over a symlinked settings.json keeps the symlink', symlinkOk, symlinkDetail);
+
+  // ---- modes -------------------------------------------------------------
+  // t2 is over the limit with enough records, so every case below fires or
+  // stays silent purely because of the mode/event pairing.
+
+  // 14. mode "off" never fires, on either event
+  const offPrompt = run('hello', t2, { mode: 'off', event: 'UserPromptSubmit' });
+  const offStop = run('hello', t2, { mode: 'off', event: 'Stop' });
+  check('mode off: silent on both events',
+    offPrompt.out === '' && offStop.out === '',
+    `prompt=${offPrompt.out.slice(0, 40)} stop=${offStop.out.slice(0, 40)}`);
+
+  // 15. mode "notice" prints a systemMessage and adds nothing to the model's
+  // context — that absence is the whole difference from "warn".
+  const notice = payloadOf(run('hello', t2, { mode: 'notice', event: 'UserPromptSubmit' }));
+  check('mode notice: systemMessage only, no additionalContext',
+    !!notice && typeof notice.systemMessage === 'string' &&
+      notice.systemMessage.includes('Context guard') && !notice.hookSpecificOutput,
+    notice ? JSON.stringify(notice).slice(0, 90) : 'silent');
+
+  // 16. a UserPromptSubmit mode must not fire on Stop
+  const noticeOnStop = run('hello', t2, { mode: 'notice', event: 'Stop' });
+  check('mode notice: silent on the Stop event',
+    noticeOnStop.code === 0 && noticeOnStop.out === '', noticeOnStop.out.slice(0, 60));
+
+  // 17. mode "after" fires on Stop, systemMessage only
+  const after = payloadOf(run('', t2, { mode: 'after', event: 'Stop' }));
+  check('mode after: systemMessage on Stop',
+    !!after && typeof after.systemMessage === 'string' &&
+      after.systemMessage.includes('Context guard') && !after.hookSpecificOutput,
+    after ? JSON.stringify(after).slice(0, 90) : 'silent');
+
+  // 18. a Stop mode must not fire on UserPromptSubmit
+  const afterOnPrompt = run('hello', t2, { mode: 'after', event: 'UserPromptSubmit' });
+  check('mode after: silent on the UserPromptSubmit event',
+    afterOnPrompt.code === 0 && afterOnPrompt.out === '', afterOnPrompt.out.slice(0, 60));
+
+  // 19. mode "after-nudge" hands the notice to the model, tagged for Stop
+  const nudge = payloadOf(run('', t2, { mode: 'after-nudge', event: 'Stop' }));
+  check('mode after-nudge: additionalContext tagged Stop',
+    !!nudge && !!nudge.hookSpecificOutput &&
+      nudge.hookSpecificOutput.hookEventName === 'Stop' &&
+      String(nudge.hookSpecificOutput.additionalContext).includes('CONTEXT GUARD TRIPPED'),
+    nudge ? JSON.stringify(nudge).slice(0, 90) : 'silent');
+
+  // 20. the loop guard. additionalContext on Stop resumes the conversation,
+  // which ends, which fires Stop again. Claude Code sets stop_hook_active on
+  // the re-entry; ignoring it loops the session until something intervenes.
+  const nudgeReentry = run('', t2, { mode: 'after-nudge', event: 'Stop', stopHookActive: true });
+  check('mode after-nudge: silent when stop_hook_active (loop guard)',
+    nudgeReentry.code === 0 && nudgeReentry.out === '', nudgeReentry.out.slice(0, 60));
+
+  // 21. an unknown mode name falls back to the default rather than firing
+  // something arbitrary or crashing.
+  const bogus = run('hello', t2, { mode: 'no-such-mode', event: 'UserPromptSubmit' });
+  check('unknown mode falls back to the default',
+    bogus.code === 0 && bogus.out.includes('CONTEXT GUARD TRIPPED'), bogus.out.slice(0, 60));
+
+  // 22. stdin with no hook_event_name is treated as UserPromptSubmit, so a
+  // hook entry written before modes existed keeps working.
+  const legacy = run('hello', t2, { mode: 'notice' });
+  check('missing hook_event_name defaults to UserPromptSubmit',
+    legacy.code === 0 && legacy.out.includes('Context guard'), legacy.out.slice(0, 60));
+
+  // 23. the installer wires every event the mode registry can dispatch to, and
+  // uninstall strips all of them.
+  const evDir = path.join(tmp, 'events-case');
+  fs.mkdirSync(evDir, { recursive: true });
+  const evSettings = path.join(evDir, 'settings.json');
+  const installer = path.join(__dirname, '..', 'bin', 'install.js');
+  const wantedEvents = [...new Set(Object.values(
+    require(path.join(path.dirname(HOOK), 'guard-config.js')).MODE_EVENTS
+  ).filter(Boolean))];
+  let eventsOk = false;
+  let strippedOk = false;
+  let eventsDetail = '';
+  try {
+    execFileSync(process.execPath, [installer, '--config-dir', evDir], { encoding: 'utf8' });
+    const wired = JSON.parse(fs.readFileSync(evSettings, 'utf8')).hooks || {};
+    eventsOk = wantedEvents.every(
+      ev => JSON.stringify(wired[ev] || []).includes('context-size-guard')
+    );
+    eventsDetail = `wired=${Object.keys(wired).join(',')} wanted=${wantedEvents.join(',')}`;
+
+    execFileSync(process.execPath, [installer, '--uninstall', '--config-dir', evDir], { encoding: 'utf8' });
+    const after = fs.readFileSync(evSettings, 'utf8');
+    strippedOk = !after.includes('context-size-guard');
+  } catch (e) {
+    eventsDetail = String(e.message).slice(0, 90);
+  }
+  check('installer wires every mode event', eventsOk, eventsDetail);
+  check('uninstall strips every mode event', strippedOk, '');
 
   fs.rmSync(tmp, { recursive: true, force: true });
 

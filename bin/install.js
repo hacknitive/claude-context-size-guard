@@ -5,7 +5,7 @@
 //   1. Plugin install (recommended): Claude Code's plugin loader reads
 //      .claude-plugin/plugin.json directly. Nothing for this script to do.
 //   2. Standalone install (this script): copies the hook into
-//      $CLAUDE_CONFIG_DIR and merges a UserPromptSubmit entry into
+//      $CLAUDE_CONFIG_DIR and merges UserPromptSubmit + Stop entries into
 //      settings.json. Use when the plugin loader is unavailable, or when you
 //      want a single-account, plugin-free wiring.
 //
@@ -16,22 +16,28 @@
 //   --all-accounts  install into every ~/.claude-* directory that looks like a
 //                   Claude Code config dir. Convenience for multi-account setups.
 //   --limit N       write {"limit": N} into the user config file
+//   --mode M        write {"mode": M} into the user config file
 //   --help          print usage
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { readSettings, writeSettings, stripOurHooks, ensureHook } = require('./lib/settings');
-const { userConfigPath } = require('../src/hooks/guard-config');
+const { userConfigPath, MODES, MODE_EVENTS } = require('../src/hooks/guard-config');
+
+// Every event any mode can fire on. Derived from the mode registry so a new
+// mode on a new event cannot be added without the installer wiring it.
+const HOOK_EVENTS = [...new Set(Object.values(MODE_EVENTS).filter(Boolean))];
 
 function log(msg) { process.stdout.write(msg + '\n'); }
 
 function usage() {
-  log('Usage: node bin/install.js [--dry-run] [--uninstall] [--config-dir PATH] [--all-accounts] [--limit N]');
+  log('Usage: node bin/install.js [--dry-run] [--uninstall] [--config-dir PATH] [--all-accounts] [--limit N] [--mode M]');
+  log(`       modes: ${MODES.join(', ')}`);
 }
 
 function parseArgs(argv) {
-  const args = { dryRun: false, uninstall: false, configDir: null, allAccounts: false, limit: null };
+  const args = { dryRun: false, uninstall: false, configDir: null, allAccounts: false, limit: null, mode: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--dry-run') args.dryRun = true;
@@ -39,11 +45,16 @@ function parseArgs(argv) {
     else if (a === '--all-accounts') args.allAccounts = true;
     else if (a === '--config-dir') { args.configDir = argv[++i]; }
     else if (a === '--limit') { args.limit = parseInt(argv[++i], 10); }
+    else if (a === '--mode') { args.mode = argv[++i]; }
     else if (a === '--help' || a === '-h') { usage(); process.exit(0); }
     else { log(`unknown flag: ${a}`); usage(); process.exit(2); }
   }
   if (args.limit !== null && (!Number.isFinite(args.limit) || args.limit <= 0)) {
     log('--limit must be a positive integer');
+    process.exit(2);
+  }
+  if (args.mode !== null && !MODES.includes(args.mode)) {
+    log(`--mode must be one of: ${MODES.join(', ')}`);
     process.exit(2);
   }
   return args;
@@ -84,14 +95,14 @@ function removeTree(target, dryRun) {
   fs.rmSync(target, { recursive: true, force: true });
 }
 
-function writeLimit(limit, dryRun) {
+function writeUserConfig(key, value, dryRun) {
   const file = userConfigPath();
   let existing = {};
   try {
     if (fs.existsSync(file)) existing = JSON.parse(fs.readFileSync(file, 'utf8')) || {};
   } catch (e) { existing = {}; }
-  existing.limit = limit;
-  log(`  limit:       ${limit} -> ${file}`);
+  existing[key] = value;
+  log(`  ${(key + ':').padEnd(12)} ${value} -> ${file}`);
   if (dryRun) return;
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(existing, null, 2) + '\n');
@@ -111,18 +122,23 @@ function install(target, args) {
   try { settings = readSettings(settingsPath); }
   catch (e) { log(`  ! ${e.message}`); return; }
 
-  // The marker (`context-size-guard`) is part of the script path, so the
-  // uninstaller can strip this entry without touching anyone else's hooks.
-  ensureHook(settings, 'UserPromptSubmit', {
+  // Both events are wired every time, whatever the configured mode. The hook
+  // itself decides which one produces output, so switching mode later is a
+  // config edit and never a reinstall. The marker (`context-size-guard`) is
+  // part of the script path, so the uninstaller can strip both entries without
+  // touching anyone else's hooks.
+  const entry = {
     type: 'command',
     command: `node "${path.join(hooksDst, 'context-size-guard.js')}"`,
     timeout: 10,
     statusMessage: 'Checking context size...',
-  });
+  };
+  for (const event of HOOK_EVENTS) ensureHook(settings, event, entry);
 
   if (!args.dryRun) writeSettings(settingsPath, settings);
-  log(`  merged hook into ${settingsPath}`);
-  if (args.limit !== null) writeLimit(args.limit, args.dryRun);
+  log(`  merged hook into ${settingsPath} (${HOOK_EVENTS.join(', ')})`);
+  if (args.limit !== null) writeUserConfig('limit', args.limit, args.dryRun);
+  if (args.mode !== null) writeUserConfig('mode', args.mode, args.dryRun);
   log(`[${target}] done`);
 }
 

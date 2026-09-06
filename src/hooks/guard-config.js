@@ -16,13 +16,37 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+// Which hook event each mode fires on. The guard is wired on both events; this
+// table is what decides which one actually produces output, so switching modes
+// never requires re-running the installer.
+//
+// The two channels behave differently and that difference is the whole point:
+//   systemMessage    — Claude Code prints the line itself. Costs nothing, and
+//                      the model never learns the guard exists.
+//   additionalContext — appended to the model's context. The model acts on it,
+//                      which costs a model turn.
+const MODE_EVENTS = {
+  // Disabled. The hook still runs and still returns silently.
+  'off': null,
+  // Before the prompt: a directive tells the model to refuse and recite the
+  // notice. Your prompt goes unanswered and the turn is spent on the warning.
+  'warn': 'UserPromptSubmit',
+  // Before the prompt: the same warning line, printed by Claude Code. The
+  // prompt is answered normally and no turn is spent.
+  'notice': 'UserPromptSubmit',
+  // After the answer: warning printed under the finished reply. Free, and the
+  // only mode with no measurement lag — Stop runs after the turn it measures.
+  'after': 'Stop',
+  // After the answer: the model speaks the notice. Costs a turn. Must respect
+  // `stop_hook_active` or the conversation restarts forever.
+  'after-nudge': 'Stop',
+};
+
+const MODES = Object.keys(MODE_EVENTS);
+
 const DEFAULTS = {
-  // "warn"  — prompt goes through; a directive is injected telling the
-  //           assistant to answer with a short notice instead. Visible.
-  // "block" — prompt is discarded via {"decision":"block"}. Claude Code
-  //           renders neither `reason` nor `systemMessage` for a blocked
-  //           UserPromptSubmit, so the prompt vanishes with no explanation on
-  //           screen. Kept for reference; "warn" is the mode that communicates.
+  // One of MODES above. "warn" is the historical default and is kept as the
+  // default so an upgrade does not silently change anyone's behaviour.
   mode: 'warn',
   // Estimated tokens of live context before the guard fires. 100,000 suits a
   // 200k window (fires at half full, early enough that /compact still has
@@ -81,7 +105,7 @@ function resolveConfig(cwd) {
   const layers = [readJsonFile(userConfigPath()), repoConfig(cwd || process.cwd())];
   for (const layer of layers) {
     if (!layer) continue;
-    if (layer.mode === 'warn' || layer.mode === 'block') config.mode = layer.mode;
+    if (MODES.includes(layer.mode)) config.mode = layer.mode;
     const limit = toPositiveInt(layer.limit);
     if (limit !== null) config.limit = limit;
     if (typeof layer.bypass === 'string' && layer.bypass) config.bypass = layer.bypass;
@@ -90,7 +114,7 @@ function resolveConfig(cwd) {
   }
 
   const envMode = process.env.CONTEXT_GUARD_MODE;
-  if (envMode === 'warn' || envMode === 'block') config.mode = envMode;
+  if (MODES.includes(envMode)) config.mode = envMode;
   const envLimit = toPositiveInt(process.env.CONTEXT_GUARD_LIMIT);
   if (envLimit !== null) config.limit = envLimit;
   if (process.env.CONTEXT_GUARD_BYPASS) config.bypass = process.env.CONTEXT_GUARD_BYPASS;
@@ -100,4 +124,4 @@ function resolveConfig(cwd) {
   return config;
 }
 
-module.exports = { DEFAULTS, resolveConfig, userConfigPath };
+module.exports = { DEFAULTS, MODES, MODE_EVENTS, resolveConfig, userConfigPath };

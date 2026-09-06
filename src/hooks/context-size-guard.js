@@ -1,21 +1,23 @@
 #!/usr/bin/env node
-// claude-context-size-guard — UserPromptSubmit hook.
+// claude-context-size-guard — UserPromptSubmit + Stop hook.
 //
 // Measures the live context since the last compact boundary and, once it
 // passes the configured limit, stops the turn with a short notice telling you
 // to run /compact instead of burning a full expensive turn on a context that
 // should have been compacted three prompts ago.
 //
-// stdin  : {"prompt": "...", "transcript_path": "/abs/path/to/session.jsonl"}
-// stdout : nothing (under the limit), or a hook JSON object (over the limit)
+// The same script serves both events. `mode` decides which one produces
+// output, so switching modes never means re-running the installer.
+//
+// stdin  : {"hook_event_name": "...", "prompt": "...", "transcript_path": "..."}
+// stdout : nothing (under the limit, or wrong event), or a hook JSON object
 //
 // Never exits non-zero and never throws: a failing UserPromptSubmit hook puts
 // a red banner on every prompt. On any error the guard stays silent and the
 // prompt goes through untouched.
 
 const fs = require('fs');
-const path = require('path');
-const { resolveConfig } = require('./guard-config');
+const { resolveConfig, MODE_EVENTS } = require('./guard-config');
 
 // Transcript record types that are bookkeeping only — they are written to the
 // .jsonl but never reach the model's context, so they must not be counted.
@@ -99,38 +101,25 @@ function group(n) {
   return n.toLocaleString('en-US');
 }
 
-function blockPayload(tokens, config, prompt) {
-  // A blocked prompt would otherwise be lost, so park it where it can be
-  // recovered. Best-effort: a failed write must not stop the block.
-  let stash = null;
-  try {
-    const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-    stash = path.join(root, 'tmp', 'blocked-prompt.txt');
-    fs.mkdirSync(path.dirname(stash), { recursive: true });
-    fs.writeFileSync(stash, prompt);
-  } catch (e) {
-    stash = null;
-  }
-  const recover = stash ? ` (saved to ${stash})` : '';
-  return {
-    decision: 'block',
-    reason:
-      `BLOCKED: context is ~${group(tokens)} tokens, over the ${group(config.limit)} limit.\n` +
-      `  1. Run /compact\n` +
-      `  2. Resend your prompt${recover}\n` +
-      `  Bypass once: prefix the prompt with '${config.bypass}'`,
-    systemMessage: `Context guard: ~${group(tokens)} tokens > ${group(config.limit)}. Run /compact.`,
-  };
+// The one-line warning every mode shows, in one place so the modes cannot
+// drift apart in wording.
+function noticeLine(tokens, config) {
+  return (
+    `Context guard: ~${group(tokens)} tokens, over the ${group(config.limit)} limit. ` +
+    `Run /compact, then resend. Bypass once by prefixing the prompt with ${config.bypass}.`
+  );
 }
 
+// mode "warn" — fires before the prompt. Injects a directive telling the model
+// to refuse and recite the notice, so the prompt goes unanswered and a model
+// turn is spent on the warning. Historical default.
 function warnPayload(tokens, config) {
   const directive =
     `CONTEXT GUARD TRIPPED: context is ~${group(tokens)} tokens, over the ` +
     `${group(config.limit)} limit.\n` +
     'Do NOT answer the user\'s prompt. Do NOT call any tool. Your entire reply ' +
     'must be a short notice, worded roughly as:\n' +
-    `  "Context guard: ~${group(tokens)} tokens, over the ${group(config.limit)} limit. ` +
-    `Run /compact, then resend. Bypass once by prefixing the prompt with ${config.bypass}."\n` +
+    `  "${noticeLine(tokens, config)}"\n` +
     'Then stop.';
   return {
     systemMessage: `Context guard: ~${group(tokens)} tokens > ${group(config.limit)}. Run /compact.`,
@@ -139,6 +128,70 @@ function warnPayload(tokens, config) {
       additionalContext: directive,
     },
   };
+}
+
+// mode "notice" — fires before the prompt. Same warning line, printed by
+// Claude Code rather than spoken by the model: the prompt is answered normally
+// and no turn is spent.
+function noticePayload(tokens, config) {
+  return { systemMessage: noticeLine(tokens, config) };
+}
+
+// mode "after" — fires on Stop, once the answer is delivered. Free, and the
+// only mode without measurement lag: Stop runs after the turn it measures,
+// whereas every UserPromptSubmit mode reads the previous turn's accounting.
+function afterPayload(tokens, config) {
+  return { systemMessage: noticeLine(tokens, config) };
+}
+
+// mode "after-nudge" — fires on Stop and hands the notice to the model, which
+// costs a turn. The caller must have checked `stop_hook_active` first; see
+// shouldFire.
+function afterNudgePayload(tokens, config) {
+  return {
+    hookSpecificOutput: {
+      hookEventName: 'Stop',
+      additionalContext:
+        `CONTEXT GUARD TRIPPED: context is ~${group(tokens)} tokens, over the ` +
+        `${group(config.limit)} limit.\n` +
+        'Tell the user, in one short line and nothing else, to run /compact. Then stop.',
+    },
+  };
+}
+
+const PAYLOADS = {
+  'warn': warnPayload,
+  'notice': noticePayload,
+  'after': afterPayload,
+  'after-nudge': afterNudgePayload,
+};
+
+// Which event this invocation is serving. Claude Code puts the name in the
+// stdin payload; argv is a fallback for manual wiring, and UserPromptSubmit is
+// assumed last so a pre-modes hook entry keeps working unchanged.
+function resolveEvent(data) {
+  if (data && typeof data.hook_event_name === 'string' && data.hook_event_name) {
+    return data.hook_event_name;
+  }
+  if (typeof process.argv[2] === 'string' && process.argv[2]) return process.argv[2];
+  return 'UserPromptSubmit';
+}
+
+// Everything that decides "stay silent" other than the measurement itself.
+function shouldFire(data, config, event) {
+  const wanted = MODE_EVENTS[config.mode];
+  if (!wanted) return false;          // mode "off", or an unknown mode name
+  if (wanted !== event) return false; // wired on both events; only one fires
+
+  // Stop hooks re-enter: additionalContext resumes the conversation, which
+  // ends, which fires Stop again. Claude Code flags the re-entry so a hook can
+  // break the cycle. Without this the session loops until something intervenes.
+  if (event === 'Stop' && data.stop_hook_active) return false;
+
+  const prompt = typeof data.prompt === 'string' ? data.prompt : '';
+  if (prompt.replace(/^\s+/, '').startsWith(config.bypass)) return false;
+
+  return true;
 }
 
 function main() {
@@ -151,9 +204,7 @@ function main() {
   if (!data || typeof data !== 'object') return 0;
 
   const config = resolveConfig(data.cwd || process.cwd());
-  const prompt = typeof data.prompt === 'string' ? data.prompt : '';
-
-  if (prompt.replace(/^\s+/, '').startsWith(config.bypass)) return 0;
+  if (!shouldFire(data, config, resolveEvent(data))) return 0;
 
   const transcriptPath = data.transcript_path;
   if (typeof transcriptPath !== 'string' || !transcriptPath) return 0;
@@ -174,11 +225,9 @@ function main() {
   // Deadlock guard: right after a compact there is nothing left to compact.
   if (measurement.records < config.minRecords) return 0;
 
-  const payload =
-    config.mode === 'block'
-      ? blockPayload(measurement.tokens, config, prompt)
-      : warnPayload(measurement.tokens, config);
-  process.stdout.write(JSON.stringify(payload));
+  const build = PAYLOADS[config.mode];
+  if (!build) return 0;
+  process.stdout.write(JSON.stringify(build(measurement.tokens, config)));
   return 0;
 }
 

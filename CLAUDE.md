@@ -6,8 +6,8 @@ Maintainer notes for anyone (or any AI agent) editing this repo.
 
 | File | Owns |
 |------|------|
-| `src/hooks/context-size-guard.js` | Measurement and decision logic. The only place that reads a transcript or decides to fire. |
-| `src/hooks/guard-config.js` | Config resolution (env → repo → user → defaults) and the default values. Never hardcode a threshold anywhere else. |
+| `src/hooks/context-size-guard.js` | Measurement and decision logic, plus one payload builder per mode. The only place that reads a transcript or decides to fire. |
+| `src/hooks/guard-config.js` | Config resolution (env → repo → user → defaults), the default values, and `MODE_EVENTS` — the registry mapping each mode to the hook event it fires on. Never hardcode a threshold or a mode name anywhere else. |
 | `.claude-plugin/plugin.json` | Plugin manifest. Points at `${CLAUDE_PLUGIN_ROOT}/src/hooks/context-size-guard.js`. |
 | `bin/install.js` + `bin/lib/settings.js` | Standalone installer. Merges the hook into `settings.json` (JSONC-tolerant), embeds the `context-size-guard` marker in the command so `--uninstall` strips cleanly. |
 | `test/selftest.js` | The behavioral contract. Any change to measurement logic needs a case here. |
@@ -25,7 +25,7 @@ Maintainer notes for anyone (or any AI agent) editing this repo.
 
 `UserPromptSubmit` stdin is JSON: `{ prompt: string, transcript_path?: string, cwd?: string, ... }`.
 
-Stdout, if a JSON object with `hookSpecificOutput.additionalContext`, is appended to the model's context for that turn. `{"decision":"block"}` discards the prompt — and Claude Code renders neither `reason` nor `systemMessage` for it, which is why `warn` is the default mode.
+Stdout, if a JSON object with `hookSpecificOutput.additionalContext`, is appended to the model's context for that turn and costs a model turn. A top-level `systemMessage` is printed by Claude Code itself and costs nothing. `Stop` stdin additionally carries `stop_hook_active`, set on re-entry — a `Stop` hook that returns `additionalContext` without checking it loops the session forever.
 
 Non-JSON stdout is ignored. Exit non-zero and Claude Code surfaces a red hook-error banner.
 
@@ -50,7 +50,15 @@ Regression checks that matter when touching the installer: install over a `setti
 
 ## Version bumps
 
-`package.json` `version`. No version field in `plugin.json` yet — add one if the Claude Code plugin loader starts consuming it.
+Keep `package.json` `version` and `.claude-plugin/plugin.json` `version` in step, and add a `CHANGELOG.md` entry.
+
+## Adding a mode
+
+1. Add it to `MODE_EVENTS` in `guard-config.js`, naming the event it fires on.
+2. Add a payload builder to `PAYLOADS` in `context-size-guard.js`, keyed by the same name.
+3. Add a self-test case that it fires on its own event and stays silent on the other.
+
+The installer derives its wired events from `MODE_EVENTS`, so a mode on a new event is wired automatically — but `stripOurHooks` only finds entries carrying the marker, so never write a hook entry whose command omits it.
 
 ## License
 

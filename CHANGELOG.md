@@ -4,6 +4,45 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] — 2026-09-06
+
+### Added
+
+- **Five modes instead of two.** `mode` now selects both *when* the guard
+  speaks and *what it costs*:
+
+  | `mode` | Fires | Prompt answered | Costs a turn |
+  |---|---|---|---|
+  | `off` | never | yes | no |
+  | `warn` | before the prompt | no | yes |
+  | `notice` | before the prompt | yes | no |
+  | `after` | after the answer | yes | no |
+  | `after-nudge` | after the answer | yes | yes |
+
+  `warn` is unchanged and remains the default, so an upgrade does not alter
+  anyone's behaviour without an explicit config change.
+- The guard is now wired on `Stop` as well as `UserPromptSubmit`. Both entries
+  are written on every install; `mode` decides which one produces output, so
+  changing mode is a config edit and never a reinstall.
+- `after` and `after-nudge` have **no measurement lag** — `Stop` runs after the
+  turn it measures, where the `UserPromptSubmit` modes read the previous turn's
+  accounting and are one turn stale.
+- `install.sh --mode M` writes the mode to the user config, alongside `--limit`.
+
+### Removed
+
+- **`mode: "block"` (breaking).** It discarded the prompt outright, and its
+  documented rationale no longer held: Claude Code does render `reason` for a
+  blocked `UserPromptSubmit`, and echoes the original prompt back. That made
+  the `tmp/blocked-prompt.txt` stash redundant, and left `block` as a harsher
+  duplicate of modes that communicate better. A config still naming `"block"`
+  now falls back to the default rather than erroring.
+
+### Fixed
+
+- Documentation claimed a blocked prompt "disappears with no explanation on
+  screen". Verified false against Claude Code 2.1.260.
+
 ## [1.2.0] — 2026-08-17
 
 ### Changed
@@ -74,5 +113,6 @@ Initial public release. Node port of the original Python guard.
   cleanly with `--uninstall`.
 - Claude Code plugin manifest.
 
+[2.0.0]: https://github.com/hacknitive/claude-context-size-guard/compare/v1.2.0...v2.0.0
 [1.0.1]: https://github.com/hacknitive/claude-context-size-guard/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/hacknitive/claude-context-size-guard/releases/tag/v1.0.0
