@@ -9,12 +9,12 @@
 
 Stops you from sending a prompt into an already-bloated context.
 
-A hook for [Claude Code](https://claude.com/claude-code). It measures the live context on every prompt and, once it passes a threshold (default **100,000 tokens**), tells you to run `/compact` — instead of letting you burn a full expensive turn on a context that should have been compacted three prompts ago.
+A hook for [Claude Code](https://claude.com/claude-code). It measures the live context on every prompt and, once it passes a threshold (default **150,000 tokens**), tells you to run `/compact` — instead of letting you burn a full expensive turn on a context that should have been compacted three prompts ago.
 
 Five [modes](#modes) decide *when* it speaks (before your prompt, or after the answer) and *what it costs* (nothing, or one model turn).
 
 ```
-Context guard: ~104,198 tokens, over the 100,000 limit. Run /compact, then resend.
+Context guard: ~187,402 tokens, over the 150,000 limit. Run /compact, then resend.
 Bypass once by prefixing the prompt with !!
 ```
 
@@ -77,7 +77,7 @@ node test/selftest.js               # test the repo copy
 node test/selftest.js --installed   # test the copy in $CLAUDE_CONFIG_DIR
 ```
 
-Expect `24/24 passed`.
+Expect `25/25 passed`.
 
 ---
 
@@ -86,7 +86,7 @@ Expect `24/24 passed`.
 | Situation | What to do |
 |---|---|
 | Guard fires | Run `/compact`, then resend your prompt. |
-| The guard keeps eating your turns | Switch to `mode: "notice"` or `"after"` — same warning, prompt still answered. |
+| The guard eats your turns instead of answering | You are on `mode: "warn"`. The default `"notice"` prints the same line and still answers. |
 | You need this one prompt through anyway | Prefix it with `!!` — e.g. `!! just answer quickly`. |
 | Guard fires right after a `/compact` | Send one `!!` prompt. The measurement lags by one turn (see *How it measures*), so the first post-compact prompt can still read the pre-compact size. |
 
@@ -105,8 +105,8 @@ Config file shape — every key optional:
 
 ```json
 {
-  "mode": "warn",
-  "limit": 100000,
+  "mode": "notice",
+  "limit": 150000,
   "bypass": "!!",
   "minRecords": 5
 }
@@ -114,14 +114,21 @@ Config file shape — every key optional:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `mode` | `"warn"` | When and how the guard speaks. Five values — see *Modes* below. |
-| `limit` | `100000` | Estimated tokens of live context before the guard fires. |
+| `mode` | `"notice"` | When and how the guard speaks. Five values — see *Modes* below. |
+| `limit` | `150000` | Estimated tokens of live context before the guard fires. |
 | `bypass` | `"!!"` | Prompt prefix that skips the guard for that one prompt. |
 | `minRecords` | `5` | Below this many records since the last compact, never fire. |
 
 A malformed config file is ignored rather than crashing the hook — a crashing `UserPromptSubmit` hook puts a red banner on every prompt, which is worse than falling back to defaults.
 
-**Tuning `limit`.** 100,000 suits a 200k-token window: it fires at half full, early enough that `/compact` still has plenty of room to work. On a 1M-token window, 200,000–400,000 is reasonable. A repo-local `.context-guard.json` lets one heavy monorepo run a higher threshold than the rest of your work.
+**Tuning `limit`.** Read the default against your context window, because 150,000 means very different things on either side of it:
+
+| Window | 150,000 is | Verdict |
+|---|---|---|
+| 1M | 15% full | early, with plenty of room for `/compact` to work |
+| 200k | 75% full | late — `/compact` has little left to summarise |
+
+On a 200k window, set `limit` to 100,000 or lower. A repo-local `.context-guard.json` lets one heavy monorepo run a different threshold from the rest of your work.
 
 ---
 
@@ -133,7 +140,7 @@ The guard is wired on two events — `UserPromptSubmit` and `Stop` — and `mode
 |---|---|---|---|---|
 | `off` | never | yes | no | nothing |
 | `warn` | before the prompt | **no** | **yes** | a notice line, then Claude repeating it instead of answering |
-| `notice` | before the prompt | yes | no | a notice line, then your answer |
+| `notice` **(default)** | before the prompt | yes | no | a notice line, then your answer |
 | `after` | after the answer | yes | no | your answer, then a notice line under it |
 | `after-nudge` | after the answer | yes | **yes** | your answer, then Claude speaking the notice |
 
@@ -145,9 +152,9 @@ before the prompt  notice                         warn
 after the answer   after                          after-nudge
 ```
 
-**`warn`** is the historical default and the most forceful: your prompt is not answered at all, so you cannot ignore it. It is also the only mode that spends a full turn telling you a turn is expensive, and the notice appears twice — once from Claude Code, once from Claude.
+**`warn`** was the default before 2.0.0 and is the most forceful: your prompt is not answered at all, so you cannot ignore it. It is also the only mode that spends a full model turn telling you a turn is expensive, and the notice appears twice — once from Claude Code, once from Claude.
 
-**`notice`** is `warn` minus the self-defeating half. Same line, same place, but your prompt still runs. Easy to ignore, which is the trade.
+**`notice`** is the default, and is `warn` minus the self-defeating half. Same line, same place, but your prompt still runs and no model turn is spent. Easy to ignore, which is the trade — if you want the guard to actually stop you, use `warn`.
 
 **`after`** is the only mode with **no measurement lag.** `Stop` runs after the turn it measures, so the number is current. Every `UserPromptSubmit` mode reads the *previous* turn's accounting and is one turn stale — which is why a pre-`Stop` guard can fire spuriously right after a `/compact`. The cost is that the warning lands after the expensive turn rather than before it.
 
@@ -188,7 +195,7 @@ claude-context-size-guard/
 ├── bin/
 │   ├── install.js               # standalone installer (merges settings.json)
 │   └── lib/settings.js          # JSONC-tolerant reader/writer
-├── test/selftest.js             # 24-case verification
+├── test/selftest.js             # 25-case verification
 ├── .claude-plugin/
 │   ├── plugin.json              # Claude Code plugin manifest
 │   └── marketplace.json         # single-plugin marketplace, for /plugin marketplace add

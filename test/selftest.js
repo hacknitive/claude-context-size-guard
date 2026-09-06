@@ -107,9 +107,11 @@ function main() {
   check('under limit: silent, exit 0', r.code === 0 && r.out === '', `code=${r.code} out=${r.out.slice(0, 80)}`);
 
   // 2. over limit -> warn directive
+  // Sized off LIMIT, not a fixed byte count: a raised default must not turn
+  // this into an under-limit transcript and silence every case that uses it.
   const t2 = path.join(tmp, 'over.jsonl');
-  writeLines(t2, Array.from({ length: 50 }, () => userRecord(10000)));
-  r = run('hello', t2);
+  writeLines(t2, Array.from({ length: MIN_RECORDS + 5 }, () => userRecord(LIMIT)));
+  r = run('hello', t2, { mode: 'warn' });
   let directive = '';
   let ok = r.code === 0 && r.out !== '';
   if (ok) {
@@ -118,7 +120,7 @@ function main() {
     } catch (e) { ok = false; directive = 'parse error: ' + e.message; }
   }
   ok = ok && directive.includes('CONTEXT GUARD TRIPPED');
-  check('over limit: warn directive emitted', ok, directive.slice(0, 90));
+  check('mode warn: directive emitted over the limit', ok, directive.slice(0, 90));
 
   // 3. over limit but under minRecords -> deadlock guard
   const t3 = path.join(tmp, 'few.jsonl');
@@ -192,7 +194,7 @@ function main() {
     { type: 'user', message: { role: 'user', content: 'hi' } },
   ]);
   r = run('hello', t9);
-  check('fallback counts attachment records', r.out.includes('CONTEXT GUARD TRIPPED'), r.out.slice(0, 90));
+  check('fallback counts attachment records', r.out.includes('Context guard'), r.out.slice(0, 90));
 
   // 10. bookkeeping record types excluded from the fallback
   const t10 = path.join(tmp, 'bookkeeping.jsonl');
@@ -224,7 +226,7 @@ function main() {
     } catch (e) { return ''; }
   })();
   check('CONTEXT_GUARD_LIMIT env override fires the guard',
-    envRun.includes('CONTEXT GUARD TRIPPED'), envRun.slice(0, 90));
+    envRun.includes('Context guard'), envRun.slice(0, 90));
 
   // 13. installing over a symlinked settings.json keeps the symlink intact.
   // Multi-account setups share one settings.json across ~/.claude-<account>/
@@ -307,15 +309,22 @@ function main() {
 
   // 21. an unknown mode name falls back to the default rather than firing
   // something arbitrary or crashing.
-  const bogus = run('hello', t2, { mode: 'no-such-mode', event: 'UserPromptSubmit' });
+  const bogus = payloadOf(run('hello', t2, { mode: 'no-such-mode', event: 'UserPromptSubmit' }));
+  const asDefault = payloadOf(run('hello', t2, { event: 'UserPromptSubmit' }));
   check('unknown mode falls back to the default',
-    bogus.code === 0 && bogus.out.includes('CONTEXT GUARD TRIPPED'), bogus.out.slice(0, 60));
+    !!bogus && JSON.stringify(bogus) === JSON.stringify(asDefault),
+    bogus ? JSON.stringify(bogus).slice(0, 60) : 'silent');
 
   // 22. stdin with no hook_event_name is treated as UserPromptSubmit, so a
   // hook entry written before modes existed keeps working.
   const legacy = run('hello', t2, { mode: 'notice' });
   check('missing hook_event_name defaults to UserPromptSubmit',
     legacy.code === 0 && legacy.out.includes('Context guard'), legacy.out.slice(0, 60));
+
+  // 24. the shipped defaults are the ones the README documents
+  check(`shipped defaults: mode=${DEFAULTS.mode}, limit=${LIMIT.toLocaleString('en-US')}`,
+    DEFAULTS.mode === 'notice' && LIMIT === 150000,
+    `mode=${DEFAULTS.mode} limit=${LIMIT}`);
 
   // 23. the installer wires every event the mode registry can dispatch to, and
   // uninstall strips all of them.

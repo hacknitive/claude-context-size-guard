@@ -45,13 +45,16 @@ const MODE_EVENTS = {
 const MODES = Object.keys(MODE_EVENTS);
 
 const DEFAULTS = {
-  // One of MODES above. "warn" is the historical default and is kept as the
-  // default so an upgrade does not silently change anyone's behaviour.
-  mode: 'warn',
-  // Estimated tokens of live context before the guard fires. 100,000 suits a
-  // 200k window (fires at half full, early enough that /compact still has
-  // room to work). On a 1M window, 200000–400000 is reasonable.
-  limit: 100000,
+  // One of MODES above. "notice" warns without spending anything: Claude Code
+  // prints the line and your prompt is still answered. "warn" refuses the
+  // prompt and spends a model turn reciting the same sentence, which is a
+  // strange price for a warning about cost.
+  mode: 'notice',
+  // Estimated tokens of live context before the guard fires. Read this against
+  // your window: 150,000 is 15% of a 1M-token window (early, plenty of room for
+  // /compact) but 75% of a 200k window (late, and /compact has little left to
+  // work with). On 200k, 100000 or lower is the better setting.
+  limit: 150000,
   // Prompt prefix that skips the guard for that one prompt.
   bypass: '!!',
   // Below this many transcript records since the last compact boundary, never
