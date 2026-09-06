@@ -1,13 +1,25 @@
 {
   "name": "claude-context-size-guard",
-  "version": "1.2.0",
-  "description": "Stops you from sending a prompt into an already-bloated context. Measures live context size on every prompt and, past a configurable token threshold (default 100,000), answers with a one-line notice telling you to run /compact instead of burning a full turn.",
+  "version": "2.0.0",
+  "description": "Stops you from sending a prompt into an already-bloated context. Measures live context size and, past a configurable token threshold (default 100,000), warns you to run /compact — before the prompt or after the answer, costing a model turn or nothing, depending on the mode.",
   "author": {
     "name": "hacknitive",
     "url": "https://github.com/hacknitive"
   },
   "hooks": {
     "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/src/hooks/context-size-guard.js\"",
+            "timeout": 10,
+            "statusMessage": "Checking context size..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
       {
         "hooks": [
           {

@@ -9,7 +9,9 @@
 
 Stops you from sending a prompt into an already-bloated context.
 
-A `UserPromptSubmit` hook for [Claude Code](https://claude.com/claude-code). It measures the live context on every prompt and, once it passes a threshold (default **100,000 tokens**), Claude answers with a one-line notice telling you to run `/compact` — instead of burning a full expensive turn on a context that should have been compacted three prompts ago.
+A hook for [Claude Code](https://claude.com/claude-code). It measures the live context on every prompt and, once it passes a threshold (default **100,000 tokens**), tells you to run `/compact` — instead of letting you burn a full expensive turn on a context that should have been compacted three prompts ago.
+
+Five [modes](#modes) decide *when* it speaks (before your prompt, or after the answer) and *what it costs* (nothing, or one model turn).
 
 ```
 Context guard: ~104,198 tokens, over the 100,000 limit. Run /compact, then resend.
@@ -51,6 +53,7 @@ cd claude-context-size-guard
 ./install.sh                    # installs into $CLAUDE_CONFIG_DIR (or ~/.claude)
 ./install.sh --all-accounts     # installs into every ~/.claude-* config dir
 ./install.sh --limit 200000     # install and set the threshold in one go
+./install.sh --mode notice      # install and set the mode in one go
 ./install.sh --dry-run          # preview only
 ./install.sh --uninstall        # remove hook + settings entry
 ```
@@ -63,7 +66,7 @@ Windows:
 
 Requires Node.js 18+. No third-party packages.
 
-The installer merges into your **existing** `settings.json`: it keeps every hook you already have, tolerates `//` comments in the file, writes a numbered `.bak` next to it, and is idempotent — run it twice and you still get exactly one guard entry. If it cannot parse your `settings.json` it refuses and changes nothing.
+The installer merges into your **existing** `settings.json`: it keeps every hook you already have, tolerates `//` comments in the file, writes a numbered `.bak` next to it, and is idempotent — run it twice and you still get exactly one guard entry per event. If it cannot parse your `settings.json` it refuses and changes nothing.
 
 Takes effect on your next prompt. No restart needed for the standalone install (Claude Code re-reads hook config per prompt); the plugin install needs one restart.
 
@@ -74,7 +77,7 @@ node test/selftest.js               # test the repo copy
 node test/selftest.js --installed   # test the copy in $CLAUDE_CONFIG_DIR
 ```
 
-Expect `13/13 passed`.
+Expect `24/24 passed`.
 
 ---
 
@@ -83,6 +86,7 @@ Expect `13/13 passed`.
 | Situation | What to do |
 |---|---|
 | Guard fires | Run `/compact`, then resend your prompt. |
+| The guard keeps eating your turns | Switch to `mode: "notice"` or `"after"` — same warning, prompt still answered. |
 | You need this one prompt through anyway | Prefix it with `!!` — e.g. `!! just answer quickly`. |
 | Guard fires right after a `/compact` | Send one `!!` prompt. The measurement lags by one turn (see *How it measures*), so the first post-compact prompt can still read the pre-compact size. |
 
@@ -110,7 +114,7 @@ Config file shape — every key optional:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `mode` | `"warn"` | `"warn"` injects a directive and Claude speaks the notice. `"block"` discards the prompt — see below. |
+| `mode` | `"warn"` | When and how the guard speaks. Five values — see *Modes* below. |
 | `limit` | `100000` | Estimated tokens of live context before the guard fires. |
 | `bypass` | `"!!"` | Prompt prefix that skips the guard for that one prompt. |
 | `minRecords` | `5` | Below this many records since the last compact, never fire. |
@@ -119,7 +123,43 @@ A malformed config file is ignored rather than crashing the hook — a crashing 
 
 **Tuning `limit`.** 100,000 suits a 200k-token window: it fires at half full, early enough that `/compact` still has plenty of room to work. On a 1M-token window, 200,000–400,000 is reasonable. A repo-local `.context-guard.json` lets one heavy monorepo run a higher threshold than the rest of your work.
 
-**On `mode: "block"`.** Claude Code renders neither `reason` nor `systemMessage` for a blocked `UserPromptSubmit`, so your prompt disappears with no explanation on screen (it is stashed to `tmp/blocked-prompt.txt` so it is recoverable). `"warn"` is the mode that actually communicates. `"block"` is kept for completeness.
+---
+
+## Modes
+
+The guard is wired on two events — `UserPromptSubmit` and `Stop` — and `mode` decides which one speaks. Switching modes is a config edit; you never reinstall.
+
+| `mode` | Fires | Prompt answered | Costs a turn | What you see |
+|---|---|---|---|---|
+| `off` | never | yes | no | nothing |
+| `warn` | before the prompt | **no** | **yes** | a notice line, then Claude repeating it instead of answering |
+| `notice` | before the prompt | yes | no | a notice line, then your answer |
+| `after` | after the answer | yes | no | your answer, then a notice line under it |
+| `after-nudge` | after the answer | yes | **yes** | your answer, then Claude speaking the notice |
+
+Two questions, crossed: warn *before* you spend the turn or *after*, and pay a model turn to say so or not.
+
+```
+                  free (Claude Code prints it)   costs a turn (Claude says it)
+before the prompt  notice                         warn
+after the answer   after                          after-nudge
+```
+
+**`warn`** is the historical default and the most forceful: your prompt is not answered at all, so you cannot ignore it. It is also the only mode that spends a full turn telling you a turn is expensive, and the notice appears twice — once from Claude Code, once from Claude.
+
+**`notice`** is `warn` minus the self-defeating half. Same line, same place, but your prompt still runs. Easy to ignore, which is the trade.
+
+**`after`** is the only mode with **no measurement lag.** `Stop` runs after the turn it measures, so the number is current. Every `UserPromptSubmit` mode reads the *previous* turn's accounting and is one turn stale — which is why a pre-`Stop` guard can fire spuriously right after a `/compact`. The cost is that the warning lands after the expensive turn rather than before it.
+
+**`after-nudge`** puts the notice in the conversation rather than in a system line, so it is harder to scroll past — for the price of an extra turn. It respects `stop_hook_active`; without that flag, `additionalContext` on `Stop` resumes the conversation, which ends, which fires `Stop` again, and the session loops indefinitely.
+
+Set it per install, per repo, or per shell:
+
+```bash
+./install.sh --mode notice          # writes it to your user config
+CONTEXT_GUARD_MODE=after claude     # one session
+echo '{"mode":"after"}' > .context-guard.json   # one repo
+```
 
 ---
 
@@ -148,7 +188,7 @@ claude-context-size-guard/
 ├── bin/
 │   ├── install.js               # standalone installer (merges settings.json)
 │   └── lib/settings.js          # JSONC-tolerant reader/writer
-├── test/selftest.js             # 13-case verification
+├── test/selftest.js             # 24-case verification
 ├── .claude-plugin/
 │   ├── plugin.json              # Claude Code plugin manifest
 │   └── marketplace.json         # single-plugin marketplace, for /plugin marketplace add
@@ -160,7 +200,7 @@ claude-context-size-guard/
 
 ## Known limits
 
-- **Measurement lags by one turn.** `message.usage` describes the turn that just finished, not the prompt you are about to send. Practical effect: the guard can fire once immediately after a `/compact`. One `!!` prompt clears it.
+- **Measurement lags by one turn in the `UserPromptSubmit` modes.** `message.usage` describes the turn that just finished, not the prompt you are about to send. Practical effect: `warn` and `notice` can fire once immediately after a `/compact`; one `!!` prompt clears it. `after` and `after-nudge` run after the turn they measure and do not have this problem.
 - **The fallback is an estimate.** `chars / 4` is a rough English-text heuristic; code and non-Latin scripts tokenize differently. It only applies when no assistant turn has happened since the last compact.
 - **Wired at two layers, it fires twice.** Claude Code merges hook layers (user, project, local) without deduplicating by script path. If you install both as a plugin and standalone, remove one.
 - **Claude Code only.** Nothing here is portable to other agent runtimes.
@@ -187,7 +227,7 @@ The command in there must point at a file that exists.
 
 ## Compatibility
 
-Composable with other always-on hooks and modes — [ai-real-friend](https://github.com/hacknitive/ai-real-friend), caveman, and anything else on `UserPromptSubmit`. This guard adds one entry and strips only its own on uninstall.
+Composable with other always-on hooks and modes — [ai-real-friend](https://github.com/hacknitive/ai-real-friend), caveman, and anything else on `UserPromptSubmit` or `Stop`. This guard adds one entry per event and strips only its own on uninstall.
 
 ---
 

@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "claude-context-size-guard",
-      "description": "Stops you from sending a prompt into an already-bloated context. UserPromptSubmit hook: past a configurable token threshold (default 100,000), Claude answers with a one-line notice to run /compact instead of burning a full turn.",
+      "description": "Stops you from sending a prompt into an already-bloated context. Five modes decide when the guard speaks (before your prompt or after the answer) and whether it costs a model turn.",
       "source": "./",
       "category": "productivity"
     }
