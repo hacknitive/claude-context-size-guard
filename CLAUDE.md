@@ -20,6 +20,8 @@ Maintainer notes for anyone (or any AI agent) editing this repo.
 - **Respect `CLAUDE_CONFIG_DIR`.** Never hardcode `~/.claude` — multi-account setups depend on the env var.
 - **Bookkeeping record types must stay in sync** with what Claude Code actually writes to the transcript but does not send to the model. The current set is in `BOOKKEEPING_TYPES`. Adding a type that *does* reach the model would make the guard under-report.
 - **`minRecords` is a deadlock guard, not a tuning knob.** Firing right after a compact traps the session with no way forward but the bypass prefix.
+- **Self-test fixtures are sized off `LIMIT`, never in raw bytes.** A hardcoded byte count silently drifts to the wrong side of the threshold when a default changes, and the case then passes without testing anything. Two cases assert their own premise for this reason.
+- **`--config-dir` scopes the Claude config dir, not the guard's config file.** The latter lives under XDG/`%APPDATA%`. The installer refuses `--limit`/`--mode` alongside `--config-dir` unless `--user-config` says where to write, because the old behaviour silently overwrote the real user config during scratch installs.
 
 ## Hook contract quick reference
 

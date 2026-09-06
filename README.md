@@ -54,6 +54,7 @@ cd claude-context-size-guard
 ./install.sh --all-accounts     # installs into every ~/.claude-* config dir
 ./install.sh --limit 200000     # install and set the threshold in one go
 ./install.sh --mode notice      # install and set the mode in one go
+./install.sh --config-dir DIR --user-config DIR/guard.json --limit 60000   # fully scoped
 ./install.sh --dry-run          # preview only
 ./install.sh --uninstall        # remove hook + settings entry
 ```
@@ -77,7 +78,7 @@ node test/selftest.js               # test the repo copy
 node test/selftest.js --installed   # test the copy in $CLAUDE_CONFIG_DIR
 ```
 
-Expect `25/25 passed`.
+Expect `29/29 passed`.
 
 ---
 
@@ -121,14 +122,18 @@ Config file shape — every key optional:
 
 A malformed config file is ignored rather than crashing the hook — a crashing `UserPromptSubmit` hook puts a red banner on every prompt, which is worse than falling back to defaults.
 
-**Tuning `limit`.** Read the default against your context window, because 150,000 means very different things on either side of it:
+**Tuning `limit`.** The default is 150,000, but a token count only means something relative to your context window:
 
-| Window | 150,000 is | Verdict |
-|---|---|---|
-| 1M | 15% full | early, with plenty of room for `/compact` to work |
-| 200k | 75% full | late — `/compact` has little left to summarise |
+| Window | 150,000 is | Warning you get | Suggested `limit` |
+|---|---|---|---|
+| 1M | 15% full | most of the session | 150,000–400,000 |
+| 200k | 75% full | very little | 60,000–100,000 |
 
-On a 200k window, set `limit` to 100,000 or lower. A repo-local `.context-guard.json` lets one heavy monorepo run a different threshold from the rest of your work.
+The point of a threshold is **lead time** — how much of the session you still have left after being told. At 15% of a window that is nearly all of it. At 75% you are already deep into the expensive part, and Claude Code's own auto-compact is not far behind, so the guard tells you something you were about to find out anyway.
+
+Pick the number that leaves you room to act, not the one that sounds cautious. If you run mostly 200k-window models, set `limit` to 100,000 or lower.
+
+A repo-local `.context-guard.json` lets one heavy monorepo run a different threshold from the rest of your work.
 
 ---
 
@@ -195,7 +200,7 @@ claude-context-size-guard/
 ├── bin/
 │   ├── install.js               # standalone installer (merges settings.json)
 │   └── lib/settings.js          # JSONC-tolerant reader/writer
-├── test/selftest.js             # 25-case verification
+├── test/selftest.js             # 29-case verification
 ├── .claude-plugin/
 │   ├── plugin.json              # Claude Code plugin manifest
 │   └── marketplace.json         # single-plugin marketplace, for /plugin marketplace add

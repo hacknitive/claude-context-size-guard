@@ -4,6 +4,36 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] — 2026-09-06
+
+### Fixed
+
+- **`--limit` and `--mode` ignored `--config-dir` and wrote to the real user
+  config.** `--config-dir` scopes where the hook and `settings.json` go, but the
+  guard's own config file lives outside that dir (XDG on POSIX, `%APPDATA%` on
+  Windows), so a scoped install silently modified the developer's live config.
+  It did exactly that twice during development of 2.0.0. The installer now
+  refuses that combination and points at the new `--user-config PATH`, which
+  writes the setting wherever you say.
+- **Two self-test fixtures no longer proved what they claimed.** The
+  usage-beats-fallback case used a fixed 400,000-char attachment — about 100k
+  tokens, which the raised 150,000 default put *under* the limit, so the case
+  passed whether or not `message.usage` won. Every fixture is now sized off
+  `LIMIT` rather than a byte count, and two cases assert their own premise
+  (that a fixture really is on the side of the threshold the case assumes)
+  before testing anything.
+
+### Added
+
+- `install.sh --user-config PATH` writes `--limit`/`--mode` to a chosen file
+  instead of the default config path.
+
+### Changed
+
+- *Tuning `limit`* in the README now frames the threshold as **lead time** —
+  how much session you have left after being warned — with suggested values per
+  window size, rather than presenting 150,000 as universally sensible.
+
 ## [2.0.0] — 2026-09-06
 
 ### Added
@@ -121,6 +151,7 @@ Initial public release. Node port of the original Python guard.
   cleanly with `--uninstall`.
 - Claude Code plugin manifest.
 
+[2.0.1]: https://github.com/hacknitive/claude-context-size-guard/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/hacknitive/claude-context-size-guard/compare/v1.2.0...v2.0.0
 [1.0.1]: https://github.com/hacknitive/claude-context-size-guard/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/hacknitive/claude-context-size-guard/releases/tag/v1.0.0
