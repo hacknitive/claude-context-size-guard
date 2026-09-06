@@ -19,8 +19,6 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   | `after` | after the answer | yes | no |
   | `after-nudge` | after the answer | yes | yes |
 
-  `warn` is unchanged and remains the default, so an upgrade does not alter
-  anyone's behaviour without an explicit config change.
 - The guard is now wired on `Stop` as well as `UserPromptSubmit`. Both entries
   are written on every install; `mode` decides which one produces output, so
   changing mode is a config edit and never a reinstall.
@@ -28,6 +26,16 @@ versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   turn it measures, where the `UserPromptSubmit` modes read the previous turn's
   accounting and are one turn stale.
 - `install.sh --mode M` writes the mode to the user config, alongside `--limit`.
+
+### Changed
+
+- **Default `mode` is now `notice`, was `warn`.** `warn` refuses the prompt and
+  spends a model turn reciting the warning — an odd price for a message about
+  cost, and the notice ends up printed twice. `notice` shows the same line and
+  answers the prompt. Set `{"mode": "warn"}` to keep the old behaviour.
+- **Default `limit` raised from 100,000 to 150,000 tokens.** Read it against
+  your window: 150,000 is 15% of a 1M-token window but 75% of a 200k one. On
+  200k, set `limit` to 100,000 or lower — see *Tuning `limit`* in the README.
 
 ### Removed
 
